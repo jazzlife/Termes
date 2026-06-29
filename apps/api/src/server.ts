@@ -19,7 +19,8 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import Fastify from "fastify";
 import Redis from "ioredis";
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createDecipheriv, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -190,7 +191,36 @@ function buildExternalBaseUrl(request: { headers: Record<string, unknown> }): st
 }
 
 function githubOAuthConfigured(): boolean {
-  return Boolean(process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim());
+  return Boolean(process.env.GITHUB_CLIENT_ID?.trim() && githubClientSecret());
+}
+
+function githubClientSecret(): string {
+  const plain = process.env.GITHUB_CLIENT_SECRET?.trim();
+  if (plain) {
+    return plain;
+  }
+
+  const encrypted = process.env.GITHUB_CLIENT_SECRET_ENC?.trim();
+  if (!encrypted) {
+    return "";
+  }
+
+  try {
+    const [, ivRaw, tagRaw, cipherRaw] = encrypted.split(":");
+    if (!ivRaw || !tagRaw || !cipherRaw) {
+      return "";
+    }
+    const keyPath = process.env.GITHUB_SECRET_KEY_FILE?.trim() || path.join(githubSecretsRootPath, "github-oauth.key");
+    const key = Buffer.from(readFileSync(keyPath, "utf8").trim(), "base64");
+    if (key.length !== 32) {
+      return "";
+    }
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivRaw, "base64"));
+    decipher.setAuthTag(Buffer.from(tagRaw, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(cipherRaw, "base64")), decipher.final()]).toString("utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 async function readGithubConnection(): Promise<GitHubConnectionRecord | null> {
@@ -766,7 +796,7 @@ async function main(): Promise<void> {
         },
         body: new URLSearchParams({
           client_id: process.env.GITHUB_CLIENT_ID?.trim() || "",
-          client_secret: process.env.GITHUB_CLIENT_SECRET?.trim() || "",
+          client_secret: githubClientSecret(),
           code: query.code,
           redirect_uri: `${buildExternalBaseUrl(request)}/api/github/oauth/callback`,
         }),
