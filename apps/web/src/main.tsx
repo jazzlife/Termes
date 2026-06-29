@@ -11,8 +11,11 @@ import {
   History,
   Loader2,
   Menu,
+  Mic,
+  MicOff,
   MessageSquare,
   PanelRight,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -23,8 +26,10 @@ import {
   Sparkles,
   Square,
   Terminal,
+  Trash2,
   UserCircle2,
   Wifi,
+  X,
 } from "lucide-react";
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -36,6 +41,7 @@ import type {
   HermesUpstreamDiagnostics,
   PlatformEvent,
   ProjectSummary,
+  ChatMessageSummary,
   TaskRuntimeSummary,
   TaskSummary,
 } from "@termes/shared";
@@ -47,11 +53,14 @@ import {
   createHermesResponse,
   createHermesRun,
   createHermesSession,
+  createProject,
   createTask,
+  deleteProject,
   deleteHermesJob,
   deleteHermesProfile,
   deleteHermesResponse,
   deleteHermesSession,
+  deleteTask,
   fetchHermesCatalog,
   fetchHermesCapabilities,
   fetchHermesHealthDetailed,
@@ -65,6 +74,7 @@ import {
   resolveHermesApproval,
   resumeHermesJob,
   runHermesJob,
+  sendTaskMessage,
   sendHermesSessionChat,
   stopHermesRun,
   streamHermesChatCompletion,
@@ -74,11 +84,26 @@ import {
   streamHermesSessionChat,
   updateHermesJob,
   updateHermesSession,
+  updateProject,
+  updateTask,
 } from "./api";
 import "./styles.css";
 
 type WorkbenchTab = "diff" | "terminal" | "files" | "logs" | "hermes";
 type MobileView = "list" | "chat" | "workbench";
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
   { id: "diff", label: "Diff" },
@@ -128,6 +153,28 @@ function eventTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function deriveTitleFromPrompt(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 64 ? `${normalized.slice(0, 61)}...` : normalized || "New Termes chat";
+}
+
+function projectKeyFromName(value: string): string {
+  const key = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 36);
+  return key.length >= 2 ? key : `project-${Date.now().toString(36)}`;
+}
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  const record = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return record.SpeechRecognition || record.webkitSpeechRecognition || null;
 }
 
 function compactTaskId(taskId: string): string {
@@ -243,6 +290,10 @@ function App(): JSX.Element {
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [projectPanelOpen, setProjectPanelOpen] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
   const [hermesPrompt, setHermesPrompt] = useState("Inspect Termes runtime and report status.");
   const [lastHermesResponseId, setLastHermesResponseId] = useState<string | null>(null);
   const [lastHermesProfileName, setLastHermesProfileName] = useState<string | null>(null);
@@ -252,10 +303,13 @@ function App(): JSX.Element {
   const [mobileView, setMobileView] = useState<MobileView>("list");
   const [searchOpen, setSearchOpen] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const selectedTaskIdRef = useRef("");
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) || projects[0],
@@ -290,6 +344,7 @@ function App(): JSX.Element {
   const latestCheckpoint = runtimeMatchesSelected ? taskRuntime?.checkpoints[0] || null : null;
   const latestArtifact = runtimeMatchesSelected ? taskRuntime?.artifacts[0] || null : null;
   const displayedTaskEvents = runtimeMatchesSelected ? taskRuntime?.events || [] : selectedTaskEvents;
+  const displayedMessages: ChatMessageSummary[] = runtimeMatchesSelected ? taskRuntime?.messages || [] : [];
   const runnerConfigured = Boolean(hermesCapabilities?.manager.runnerConfigured);
   const upstreamStatus = hermesCapabilities?.manager.upstreamStatus || "checking";
   const upstreamError = hermesCapabilities?.manager.upstreamError;
@@ -373,6 +428,8 @@ function App(): JSX.Element {
   }
 
   useEffect(() => {
+    setVoiceSupported(Boolean(getSpeechRecognitionConstructor()));
+
     refresh()
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -391,10 +448,17 @@ function App(): JSX.Element {
     const source = connectEvents((event) => {
       setEvents((current) => [event, ...current].slice(0, 80));
       if (
+        event.type === "project.created" ||
+        event.type === "project.updated" ||
+        event.type === "project.deleted" ||
         event.type === "task.created" ||
+        event.type === "task.updated" ||
+        event.type === "task.deleted" ||
         event.type === "task.started" ||
         event.type === "agent.delta" ||
         event.type === "checkpoint.created" ||
+        event.type === "chat.message.created" ||
+        event.type === "chat.message.completed" ||
         event.type === "task.completed" ||
         event.type === "task.failed"
       ) {
@@ -411,6 +475,7 @@ function App(): JSX.Element {
 
     return () => {
       source.close();
+      recognitionRef.current?.stop();
     };
   }, []);
 
@@ -433,19 +498,157 @@ function App(): JSX.Element {
     }
 
     setError(null);
-    const task = await createTask({
-      projectId: selectedProject.id,
-      title,
-      instructions,
-    });
+    const prompt = instructions.trim();
+    const nextTitle = title.trim();
+    if (!prompt) {
+      return;
+    }
 
-    setTasks((current) => [task, ...current]);
-    setSelectedTaskId(task.id);
-    setMobileView("chat");
-    setTitle("");
-    setInstructions("");
+    setSendingMessage(true);
+    try {
+      if (selectedTask && !nextTitle) {
+        await sendTaskMessage(selectedTask.id, prompt);
+        setInstructions("");
+        await refreshTaskList(selectedProject.id);
+        await refreshRuntime(selectedTask.id);
+        return;
+      }
+
+      const task = await createTask({
+        projectId: selectedProject.id,
+        title: nextTitle || deriveTitleFromPrompt(prompt),
+        instructions: prompt,
+      });
+
+      setTasks((current) => [task, ...current]);
+      setSelectedTaskId(task.id);
+      setMobileView("chat");
+      setTitle("");
+      setInstructions("");
+      await refreshRuntime(task.id);
+      await refreshHermesCatalog();
+    } finally {
+      setSendingMessage(false);
+    }
+  }
+
+  async function handleCreateProject(): Promise<void> {
+    const name = projectName.trim();
+    if (!name) {
+      return;
+    }
+    const description = projectDescription.trim();
+
+    const project = await createProject({
+      key: projectKeyFromName(name),
+      name,
+      ...(description ? { description } : {}),
+    });
+    setProjectName("");
+    setProjectDescription("");
+    setProjectPanelOpen(false);
+    await refresh(project.id);
+  }
+
+  async function handleRenameProject(): Promise<void> {
+    if (!selectedProject) {
+      return;
+    }
+
+    const nextName = window.prompt("프로젝트 이름", selectedProject.name)?.trim();
+    if (!nextName || nextName === selectedProject.name) {
+      return;
+    }
+
+    await updateProject(selectedProject.id, { name: nextName });
+    await refresh(selectedProject.id, selectedTask?.id);
+  }
+
+  async function handleDeleteProject(): Promise<void> {
+    if (!selectedProject) {
+      return;
+    }
+
+    const ok = window.confirm(`${selectedProject.name} 프로젝트와 하위 대화를 삭제할까요?`);
+    if (!ok) {
+      return;
+    }
+
+    await deleteProject(selectedProject.id);
+    await refresh();
+  }
+
+  async function handleRenameTask(): Promise<void> {
+    if (!selectedTask) {
+      return;
+    }
+
+    const nextTitle = window.prompt("대화 제목", selectedTask.title)?.trim();
+    if (!nextTitle || nextTitle === selectedTask.title) {
+      return;
+    }
+
+    const task = await updateTask(selectedTask.id, { title: nextTitle });
+    setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
     await refreshRuntime(task.id);
-    await refreshHermesCatalog();
+  }
+
+  async function handleDeleteTask(): Promise<void> {
+    if (!selectedTask) {
+      return;
+    }
+
+    const ok = window.confirm(`${selectedTask.title} 대화를 삭제할까요?`);
+    if (!ok) {
+      return;
+    }
+
+    await deleteTask(selectedTask.id);
+    const remaining = tasks.filter((task) => task.id !== selectedTask.id);
+    setTasks(remaining);
+    setSelectedTaskId(remaining[0]?.id || "");
+    setTaskRuntime(null);
+    setMobileView("list");
+    await refreshTaskList(selectedProject?.id);
+  }
+
+  function toggleVoiceInput(): void {
+    if (voiceListening) {
+      recognitionRef.current?.stop();
+      setVoiceListening(false);
+      return;
+    }
+
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setError("현재 브라우저가 음성 입력을 지원하지 않습니다. Chrome 계열 브라우저에서 사용할 수 있습니다.");
+      setVoiceSupported(false);
+      return;
+    }
+
+    const recognition = new Recognition();
+    recognition.lang = "ko-KR";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0].transcript)
+        .join(" ")
+        .trim();
+      if (transcript) {
+        setInstructions((current) => `${current}${current.trim() ? " " : ""}${transcript}`);
+      }
+    };
+    recognition.onerror = (event) => {
+      setError(`음성 입력 오류: ${event.error}`);
+      setVoiceListening(false);
+    };
+    recognition.onend = () => {
+      setVoiceListening(false);
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
+    setVoiceListening(true);
   }
 
   async function handleStopRun(): Promise<void> {
@@ -1524,9 +1727,6 @@ function App(): JSX.Element {
         ) : null}
 
         <div className="project-chip-row aliasProjectChips">
-          <button className="project-chip-button active" type="button">
-            Tasks
-          </button>
           {projects.map((project) => (
             <button
               className={project.id === selectedProject?.id ? "project-chip-button active" : "project-chip-button"}
@@ -1543,7 +1743,73 @@ function App(): JSX.Element {
               {project.name}
             </button>
           ))}
+          <button
+            className={projectPanelOpen ? "project-chip-button active" : "project-chip-button"}
+            type="button"
+            title="프로젝트 생성"
+            onClick={() => setProjectPanelOpen((current) => !current)}
+          >
+            <Plus size={14} />
+            Project
+          </button>
+          <button
+            className="project-chip-button iconOnly"
+            type="button"
+            title="프로젝트 이름 변경"
+            disabled={!selectedProject}
+            onClick={() => {
+              handleRenameProject().catch((cause: unknown) => {
+                setError(cause instanceof Error ? cause.message : String(cause));
+              });
+            }}
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            className="project-chip-button iconOnly danger"
+            type="button"
+            title="프로젝트 삭제"
+            disabled={!selectedProject}
+            onClick={() => {
+              handleDeleteProject().catch((cause: unknown) => {
+                setError(cause instanceof Error ? cause.message : String(cause));
+              });
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
+
+        {projectPanelOpen ? (
+          <form
+            className="projectCreatePanel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleCreateProject().catch((cause: unknown) => {
+                setError(cause instanceof Error ? cause.message : String(cause));
+              });
+            }}
+          >
+            <input
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              placeholder="프로젝트 이름"
+              required
+            />
+            <input
+              value={projectDescription}
+              onChange={(event) => setProjectDescription(event.target.value)}
+              placeholder="설명"
+            />
+            <button className="aliasActionButton primary" type="submit">
+              <Plus size={15} />
+              생성
+            </button>
+            <button className="aliasIconButton" type="button" onClick={() => setProjectPanelOpen(false)}>
+              <X size={16} />
+            </button>
+          </form>
+        ) : null}
       </div>
 
       {error ? (
@@ -1647,6 +1913,32 @@ function App(): JSX.Element {
               <button
                 className="aliasIconButton"
                 type="button"
+                title="대화 제목 변경"
+                disabled={!selectedTask}
+                onClick={() => {
+                  handleRenameTask().catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  });
+                }}
+              >
+                <Pencil size={17} />
+              </button>
+              <button
+                className="aliasIconButton danger"
+                type="button"
+                title="대화 삭제"
+                disabled={!selectedTask}
+                onClick={() => {
+                  handleDeleteTask().catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  });
+                }}
+              >
+                <Trash2 size={17} />
+              </button>
+              <button
+                className="aliasIconButton"
+                type="button"
                 title="Hermes"
                 onClick={() => {
                   setActiveWorkbenchTab("hermes");
@@ -1685,7 +1977,31 @@ function App(): JSX.Element {
                   <span>{latestSession?.hermesRunId || hermesRuntimeDetail}</span>
                 </div>
 
-                {selectedTask ? (
+                {displayedMessages.length > 0 ? (
+                  displayedMessages.map((message) => (
+                    <article
+                      className={
+                        message.role === "user"
+                          ? "aliasMessage userMessage message-enter"
+                          : "aliasMessage agentMessage message-enter"
+                      }
+                      key={message.id}
+                    >
+                      {message.role === "user" ? null : (
+                        <span className="aliasAgentAvatar">
+                          <Bot size={15} />
+                        </span>
+                      )}
+                      <div className="aliasMessageBubble">
+                        <div className="aliasMessageMeta">
+                          <strong>{message.role === "user" ? "Master" : "Hermes"}</strong>
+                          <time>{eventTime(message.createdAt)}</time>
+                        </div>
+                        <p>{message.content}</p>
+                      </div>
+                    </article>
+                  ))
+                ) : selectedTask ? (
                   <article className="aliasMessage userMessage message-enter">
                     <div className="aliasMessageBubble">
                       <div className="aliasMessageMeta">
@@ -1700,7 +2016,7 @@ function App(): JSX.Element {
                   <div className="aliasEmpty">좌측 목록에서 채팅창을 선택하거나 새 작업을 입력해 주세요.</div>
                 )}
 
-                {displayedTaskEvents.slice(0, 18).map((event) => (
+                {displayedTaskEvents.slice(0, 12).map((event) => (
                   <article className="aliasMessage agentMessage message-enter" key={event.id}>
                     <span className="aliasAgentAvatar">
                       <Bot size={15} />
@@ -1744,19 +2060,41 @@ function App(): JSX.Element {
                   ref={titleInputRef}
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Task title"
-                  required
+                  placeholder={selectedTask ? "새 대화 제목(입력하면 새 대화 생성)" : "새 대화 제목"}
                 />
                 <div className="aliasComposerRow">
                   <textarea
                     value={instructions}
                     onChange={(event) => setInstructions(event.target.value)}
-                    placeholder="Termes에게 구현, 점검, 리팩터링, 배포를 지시하세요..."
+                    placeholder={
+                      selectedTask && !title.trim()
+                        ? "Hermes에게 후속 메시지를 보내세요..."
+                        : "Termes에게 구현, 점검, 리팩터링, 배포를 지시하세요..."
+                    }
                     required
                   />
-                  <button className="aliasSendButton" type="submit" title="Create task" disabled={!selectedProject}>
-                    <Send size={18} />
+                  <button
+                    className={voiceListening ? "aliasSendButton listening" : "aliasSendButton secondary"}
+                    type="button"
+                    title={voiceSupported ? "음성 입력" : "음성 입력 미지원"}
+                    disabled={!voiceSupported}
+                    onClick={toggleVoiceInput}
+                  >
+                    {voiceListening ? <MicOff size={18} /> : <Mic size={18} />}
                   </button>
+                  <button
+                    className="aliasSendButton"
+                    type="submit"
+                    title={selectedTask && !title.trim() ? "Send message" : "Create task"}
+                    disabled={!selectedProject || sendingMessage || !instructions.trim()}
+                  >
+                    {sendingMessage ? <Loader2 size={18} className="spinIcon" /> : <Send size={18} />}
+                  </button>
+                </div>
+                <div className="composerHint">
+                  {selectedTask && !title.trim()
+                    ? "선택된 대화에 메시지를 보냅니다."
+                    : "제목을 비워도 첫 문장으로 새 대화 제목을 만듭니다."}
                 </div>
               </form>
             </section>

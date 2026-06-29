@@ -182,6 +182,10 @@ svg {
   color: #0f172a;
 }
 
+.aliasIconButton.danger {
+  color: #fecaca;
+}
+
 .aliasIconButton:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -286,6 +290,44 @@ svg {
 .aliasProjectChips .project-chip-button.active {
   background: #ffffff;
   color: #0f172a;
+}
+
+.aliasProjectChips .project-chip-button.iconOnly {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.aliasProjectChips .project-chip-button.danger {
+  color: #fecaca;
+}
+
+.aliasProjectChips .project-chip-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.projectCreatePanel {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.4fr) auto auto;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.projectCreatePanel input {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.projectCreatePanel input::placeholder {
+  color: #64748b;
 }
 
 .mobileNotice {
@@ -779,9 +821,36 @@ svg {
   color: #ffffff;
 }
 
+.aliasSendButton.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #dbeafe;
+}
+
+.aliasSendButton.listening {
+  background: #f59e0b;
+  color: #111827;
+}
+
 .aliasSendButton:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+.composerHint {
+  padding: 7px 3px 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.spinIcon {
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .aliasWorkbenchPanel .workbenchTabs {
@@ -898,6 +967,16 @@ svg {
   .aliasProjectChips {
     padding-right: 14px;
     padding-left: 14px;
+  }
+
+  .projectCreatePanel {
+    grid-template-columns: 1fr auto;
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .projectCreatePanel input {
+    grid-column: span 2;
   }
 
   .aliasListFooter {

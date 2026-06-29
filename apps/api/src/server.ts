@@ -2,6 +2,8 @@ import cors from "@fastify/cors";
 import type {
   AgentRunSummary,
   ArtifactSummary,
+  ChatMessageRole,
+  ChatMessageSummary,
   CheckpointSummary,
   EventType,
   HermesCapabilitySummary,
@@ -17,7 +19,7 @@ import Fastify from "fastify";
 import Redis from "ioredis";
 import { z } from "zod";
 import { loadConfig } from "./config";
-import { assertDbReady, createDb } from "./db";
+import { assertDbReady, createDb, type Db } from "./db";
 import { EVENT_CHANNEL, appendEvent } from "./events";
 
 const projectInputSchema = z.object({
@@ -31,10 +33,34 @@ const projectInputSchema = z.object({
   description: z.string().trim().max(1000).optional(),
 });
 
+const projectPatchSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    description: z.string().trim().max(1000).nullable().optional(),
+  })
+  .refine((value) => value.name !== undefined || value.description !== undefined, {
+    message: "At least one project field is required",
+  });
+
 const taskInputSchema = z.object({
   projectId: z.string().uuid(),
   title: z.string().trim().min(2).max(180),
   instructions: z.string().trim().min(1).max(10000),
+});
+
+const taskPatchSchema = z
+  .object({
+    title: z.string().trim().min(2).max(180).optional(),
+    instructions: z.string().trim().min(1).max(10000).optional(),
+    status: z.string().optional(),
+  })
+  .refine(
+    (value) => value.title !== undefined || value.instructions !== undefined || value.status !== undefined,
+    { message: "At least one task field is required" },
+  );
+
+const chatMessageInputSchema = z.object({
+  content: z.string().trim().min(1).max(20000),
 });
 
 function mapProject(row: {
@@ -43,6 +69,7 @@ function mapProject(row: {
   name: string;
   description: string | null;
   created_at: Date;
+  updated_at: Date;
 }): ProjectSummary {
   return {
     id: row.id,
@@ -50,6 +77,7 @@ function mapProject(row: {
     name: row.name,
     description: row.description,
     createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at?.toISOString(),
   };
 }
 
@@ -187,6 +215,164 @@ function mapEvent(row: {
   };
 }
 
+function mapChatMessage(row: {
+  id: string;
+  project_id: string;
+  task_id: string;
+  role: ChatMessageRole;
+  source: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at: Date;
+}): ChatMessageSummary {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    taskId: row.task_id,
+    role: row.role,
+    source: row.source,
+    content: row.content,
+    metadata: row.metadata,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function firstText(value: unknown, keys: string[]): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  for (const key of keys) {
+    const candidate = (value as Record<string, unknown>)[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function extractHermesAssistantText(value: unknown): string {
+  const direct = firstText(value, ["output", "content", "text"]);
+  if (direct) {
+    return direct;
+  }
+
+  if (value && typeof value === "object") {
+    const message = (value as Record<string, unknown>).message;
+    const messageText = firstText(message, ["content", "output", "text"]);
+    if (messageText) {
+      return messageText;
+    }
+  }
+
+  return JSON.stringify(value);
+}
+
+async function insertChatMessage(
+  db: Db,
+  input: {
+    projectId: string;
+    taskId: string;
+    role: ChatMessageRole;
+    source: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<ChatMessageSummary> {
+  const result = await db.pool.query<{
+    id: string;
+    project_id: string;
+    task_id: string;
+    role: ChatMessageRole;
+    source: string;
+    content: string;
+    metadata: Record<string, unknown>;
+    created_at: Date;
+  }>(
+    `
+      insert into chat_messages (project_id, task_id, role, source, content, metadata)
+      values ($1, $2, $3, $4, $5, $6::jsonb)
+      returning id, project_id, task_id, role, source, content, metadata, created_at
+    `,
+    [
+      input.projectId,
+      input.taskId,
+      input.role,
+      input.source,
+      input.content,
+      JSON.stringify(input.metadata || {}),
+    ],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error("Chat message insert did not return a row");
+  }
+
+  return mapChatMessage(row);
+}
+
+async function ensureHermesSession(
+  db: Db,
+  config: ReturnType<typeof loadConfig>,
+  task: { id: string; project_id: string; title: string },
+): Promise<string> {
+  const existing = await db.pool.query<{ hermes_session_id: string | null }>(
+    `
+      select hermes_session_id
+      from runtime_sessions
+      where task_id = $1 and hermes_session_id is not null
+      order by created_at desc
+      limit 1
+    `,
+    [task.id],
+  );
+  const existingId = existing.rows[0]?.hermes_session_id;
+  if (existingId) {
+    return existingId;
+  }
+
+  const response = await fetch(`${config.hermesManagerUrl}/api/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      title: `${task.title} · ${task.id.slice(0, 8)}`,
+      source: "termes-chat",
+      metadata: {
+        projectId: task.project_id,
+        taskId: task.id,
+      },
+    }),
+  });
+  const body = (await response.json()) as Record<string, unknown>;
+  if (!response.ok) {
+    throw new Error(`Hermes session create failed: ${response.status} ${JSON.stringify(body)}`);
+  }
+
+  const sessionId =
+    (typeof body.id === "string" && body.id) ||
+    (typeof body.session_id === "string" && body.session_id) ||
+    (body.session &&
+    typeof body.session === "object" &&
+    typeof (body.session as Record<string, unknown>).id === "string"
+      ? ((body.session as Record<string, unknown>).id as string)
+      : "");
+  if (!sessionId) {
+    throw new Error(`Hermes session create did not return an id: ${JSON.stringify(body)}`);
+  }
+
+  await db.pool.query(
+    `
+      insert into runtime_sessions (task_id, hermes_session_id)
+      values ($1, $2)
+    `,
+    [task.id, sessionId],
+  );
+
+  return sessionId;
+}
+
 function encodeSse(event: string, data: unknown, id?: string): string {
   const lines = [`event: ${event}`, `data: ${JSON.stringify(data)}`];
   if (id) {
@@ -282,9 +468,10 @@ async function main(): Promise<void> {
       name: string;
       description: string | null;
       created_at: Date;
+      updated_at: Date;
     }>(
       `
-        select id, key, name, description, created_at
+        select id, key, name, description, created_at, updated_at
         from projects
         order by created_at asc
       `,
@@ -301,11 +488,12 @@ async function main(): Promise<void> {
       name: string;
       description: string | null;
       created_at: Date;
+      updated_at: Date;
     }>(
       `
         insert into projects (key, name, description)
         values ($1, $2, $3)
-        returning id, key, name, description, created_at
+        returning id, key, name, description, created_at, updated_at
       `,
       [input.key, input.name, input.description ?? null],
     );
@@ -315,7 +503,86 @@ async function main(): Promise<void> {
       throw new Error("Project insert did not return a row");
     }
 
-    return reply.code(201).send({ project: mapProject(row) });
+    const project = mapProject(row);
+    await appendEvent(db.pool, redis, {
+      projectId: row.id,
+      type: "project.created",
+      payload: {
+        key: row.key,
+        name: row.name,
+      },
+    });
+
+    return reply.code(201).send({ project });
+  });
+
+  app.patch("/api/projects/:projectId", async (request, reply) => {
+    const params = z.object({ projectId: z.string().uuid() }).parse(request.params);
+    const input = projectPatchSchema.parse(request.body);
+    const result = await db.pool.query<{
+      id: string;
+      key: string;
+      name: string;
+      description: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+        update projects
+        set
+          name = coalesce($2, name),
+          description = case when $3::boolean then $4 else description end,
+          updated_at = now()
+        where id = $1
+        returning id, key, name, description, created_at, updated_at
+      `,
+      [params.projectId, input.name ?? null, input.description !== undefined, input.description ?? null],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+
+    await appendEvent(db.pool, redis, {
+      projectId: row.id,
+      type: "project.updated",
+      payload: {
+        key: row.key,
+        name: row.name,
+      },
+    });
+
+    return { project: mapProject(row) };
+  });
+
+  app.delete("/api/projects/:projectId", async (request, reply) => {
+    const params = z.object({ projectId: z.string().uuid() }).parse(request.params);
+    const result = await db.pool.query<{ id: string; key: string; name: string }>(
+      `
+        delete from projects
+        where id = $1
+        returning id, key, name
+      `,
+      [params.projectId],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+
+    await appendEvent(db.pool, redis, {
+      projectId: null,
+      type: "project.deleted",
+      payload: {
+        projectId: row.id,
+        key: row.key,
+        name: row.name,
+      },
+    });
+
+    return { project: row, deleted: true };
   });
 
   app.get("/api/tasks", async (request) => {
@@ -401,7 +668,100 @@ async function main(): Promise<void> {
       },
     });
 
+    await insertChatMessage(db, {
+      projectId: row.project_id,
+      taskId: row.id,
+      role: "user",
+      source: "master",
+      content: input.instructions,
+      metadata: {
+        title: row.title,
+        initial: true,
+      },
+    });
+
+    await ensureHermesSession(db, config, row);
+
     return reply.code(201).send({ task: mapTask(row) });
+  });
+
+  app.patch("/api/tasks/:taskId", async (request, reply) => {
+    const params = z.object({ taskId: z.string().uuid() }).parse(request.params);
+    const input = taskPatchSchema.parse(request.body);
+    const status = input.status ? assertTaskStatus(input.status) : undefined;
+    const result = await db.pool.query<{
+      id: string;
+      project_id: string;
+      title: string;
+      instructions: string;
+      status: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+        update tasks
+        set
+          title = coalesce($2, title),
+          instructions = coalesce($3, instructions),
+          status = coalesce($4::task_status, status),
+          updated_at = now()
+        where id = $1
+        returning id, project_id, title, instructions, status, created_at, updated_at
+      `,
+      [params.taskId, input.title ?? null, input.instructions ?? null, status ?? null],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    await appendEvent(db.pool, redis, {
+      projectId: row.project_id,
+      taskId: row.id,
+      type: "task.updated",
+      payload: {
+        title: row.title,
+        status: row.status,
+      },
+    });
+
+    return { task: mapTask(row) };
+  });
+
+  app.delete("/api/tasks/:taskId", async (request, reply) => {
+    const params = z.object({ taskId: z.string().uuid() }).parse(request.params);
+    const result = await db.pool.query<{
+      id: string;
+      project_id: string;
+      title: string;
+      status: string;
+    }>(
+      `
+        delete from tasks
+        where id = $1
+        returning id, project_id, title, status
+      `,
+      [params.taskId],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    await appendEvent(db.pool, redis, {
+      projectId: row.project_id,
+      taskId: null,
+      type: "task.deleted",
+      payload: {
+        taskId: row.id,
+        title: row.title,
+        status: row.status,
+      },
+    });
+
+    return { task: row, deleted: true };
   });
 
   app.get("/api/runtime/hermes", async (request, reply) => {
@@ -483,8 +843,27 @@ async function main(): Promise<void> {
       return reply.code(404).send({ error: "Task not found" });
     }
 
-    const [sessionsResult, runsResult, checkpointsResult, artifactsResult, eventsResult] =
+    const [messagesResult, sessionsResult, runsResult, checkpointsResult, artifactsResult, eventsResult] =
       await Promise.all([
+        db.pool.query<{
+          id: string;
+          project_id: string;
+          task_id: string;
+          role: ChatMessageRole;
+          source: string;
+          content: string;
+          metadata: Record<string, unknown>;
+          created_at: Date;
+        }>(
+          `
+            select id, project_id, task_id, role, source, content, metadata, created_at
+            from chat_messages
+            where task_id = $1
+            order by created_at asc
+            limit 500
+          `,
+          [params.taskId],
+        ),
         db.pool.query<{
           id: string;
           task_id: string;
@@ -584,6 +963,7 @@ async function main(): Promise<void> {
 
     const runtime: TaskRuntimeSummary = {
       task: mapTask(taskRow),
+      messages: messagesResult.rows.map(mapChatMessage),
       sessions: sessionsResult.rows.map(mapSession),
       runs: runsResult.rows.map(mapRun),
       checkpoints: checkpointsResult.rows.map(mapCheckpoint),
@@ -592,6 +972,117 @@ async function main(): Promise<void> {
     };
 
     return runtime;
+  });
+
+  app.get("/api/tasks/:taskId/messages", async (request, reply) => {
+    const params = z.object({ taskId: z.string().uuid() }).parse(request.params);
+    const task = await db.pool.query<{ id: string }>("select id from tasks where id = $1", [params.taskId]);
+    if ((task.rowCount ?? 0) === 0) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    const result = await db.pool.query<{
+      id: string;
+      project_id: string;
+      task_id: string;
+      role: ChatMessageRole;
+      source: string;
+      content: string;
+      metadata: Record<string, unknown>;
+      created_at: Date;
+    }>(
+      `
+        select id, project_id, task_id, role, source, content, metadata, created_at
+        from chat_messages
+        where task_id = $1
+        order by created_at asc
+        limit 500
+      `,
+      [params.taskId],
+    );
+
+    return { messages: result.rows.map(mapChatMessage) };
+  });
+
+  app.post("/api/tasks/:taskId/messages", async (request, reply) => {
+    const params = z.object({ taskId: z.string().uuid() }).parse(request.params);
+    const input = chatMessageInputSchema.parse(request.body);
+    const taskResult = await db.pool.query<{
+      id: string;
+      project_id: string;
+      title: string;
+      instructions: string;
+      status: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+        select id, project_id, title, instructions, status, created_at, updated_at
+        from tasks
+        where id = $1
+      `,
+      [params.taskId],
+    );
+
+    const task = taskResult.rows[0];
+    if (!task) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    const userMessage = await insertChatMessage(db, {
+      projectId: task.project_id,
+      taskId: task.id,
+      role: "user",
+      source: "master",
+      content: input.content,
+    });
+
+    await appendEvent(db.pool, redis, {
+      projectId: task.project_id,
+      taskId: task.id,
+      type: "chat.message.created",
+      payload: {
+        role: "user",
+        messageId: userMessage.id,
+      },
+    });
+
+    const sessionId = await ensureHermesSession(db, config, task);
+    const response = await fetch(`${config.hermesManagerUrl}/api/sessions/${encodeURIComponent(sessionId)}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: input.content }),
+    });
+    const body = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error(`Hermes session chat failed: ${response.status} ${JSON.stringify(body)}`);
+    }
+
+    const assistantMessage = await insertChatMessage(db, {
+      projectId: task.project_id,
+      taskId: task.id,
+      role: "assistant",
+      source: "hermes",
+      content: extractHermesAssistantText(body),
+      metadata: {
+        hermesSessionId: sessionId,
+        response: body,
+      },
+    });
+
+    await db.pool.query("update tasks set updated_at = now() where id = $1", [task.id]);
+    await appendEvent(db.pool, redis, {
+      projectId: task.project_id,
+      taskId: task.id,
+      type: "chat.message.completed",
+      payload: {
+        role: "assistant",
+        messageId: assistantMessage.id,
+        hermesSessionId: sessionId,
+      },
+    });
+
+    return reply.code(201).send({ messages: [userMessage, assistantMessage] });
   });
 
   app.get("/events/stream", async (_request, reply) => {

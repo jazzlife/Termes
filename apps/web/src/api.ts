@@ -8,6 +8,7 @@ import type {
   HermesRunSummary,
   PlatformEvent,
   ProjectSummary,
+  ChatMessageSummary,
   TaskRuntimeSummary,
   TaskSummary,
 } from "@termes/shared";
@@ -27,6 +28,57 @@ export async function fetchProjects(): Promise<ProjectSummary[]> {
   return data.projects;
 }
 
+export async function createProject(input: {
+  key: string;
+  name: string;
+  description?: string;
+}): Promise<ProjectSummary> {
+  const response = await fetch("/api/projects", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create project: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { project: ProjectSummary };
+  return data.project;
+}
+
+export async function updateProject(
+  projectId: string,
+  input: { name?: string; description?: string | null },
+): Promise<ProjectSummary> {
+  const response = await fetch(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update project: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { project: ProjectSummary };
+  return data.project;
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const response = await fetch(`/api/projects/${projectId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete project: ${response.status}`);
+  }
+}
+
 export async function fetchTasks(projectId?: string): Promise<TaskSummary[]> {
   const params = new URLSearchParams();
   if (projectId) {
@@ -40,6 +92,36 @@ export async function fetchTasks(projectId?: string): Promise<TaskSummary[]> {
 
   const data = (await response.json()) as { tasks: TaskSummary[] };
   return data.tasks;
+}
+
+export async function updateTask(
+  taskId: string,
+  input: { title?: string; instructions?: string; status?: string },
+): Promise<TaskSummary> {
+  const response = await fetch(`/api/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update task: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { task: TaskSummary };
+  return data.task;
+}
+
+export async function deleteTask(taskId: string): Promise<void> {
+  const response = await fetch(`/api/tasks/${taskId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete task: ${response.status}`);
+  }
 }
 
 export async function createTask(input: {
@@ -61,6 +143,33 @@ export async function createTask(input: {
 
   const data = (await response.json()) as { task: TaskSummary };
   return data.task;
+}
+
+export async function fetchTaskMessages(taskId: string): Promise<ChatMessageSummary[]> {
+  const response = await fetch(`/api/tasks/${taskId}/messages`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch task messages: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { messages: ChatMessageSummary[] };
+  return data.messages;
+}
+
+export async function sendTaskMessage(taskId: string, content: string): Promise<ChatMessageSummary[]> {
+  const response = await fetch(`/api/tasks/${taskId}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to send task message: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { messages: ChatMessageSummary[] };
+  return data.messages;
 }
 
 export async function fetchHermesCapabilities(): Promise<HermesCapabilitySummary> {
@@ -447,7 +556,12 @@ export function connectEvents(onEvent: (event: PlatformEvent) => void): EventSou
   const source = new EventSource("/events/stream");
 
   const eventTypes = [
+    "project.created",
+    "project.updated",
+    "project.deleted",
     "task.created",
+    "task.updated",
+    "task.deleted",
     "task.started",
     "agent.created",
     "agent.started",
@@ -461,6 +575,8 @@ export function connectEvents(onEvent: (event: PlatformEvent) => void): EventSou
     "approval.requested",
     "approval.approved",
     "approval.rejected",
+    "chat.message.created",
+    "chat.message.completed",
     "task.completed",
     "task.failed",
   ];
