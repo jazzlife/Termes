@@ -81,7 +81,6 @@ services:
       MIGRATIONS_DIR: /app/infra/db/migrations
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://100.64.0.9:4180}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
-      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_CLIENT_SECRET_ENC: ${GITHUB_CLIENT_SECRET_ENC:-}
       GITHUB_SECRET_KEY_FILE: ${GITHUB_SECRET_KEY_FILE:-/data/docker_data/termes/secrets/github-oauth.key}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}

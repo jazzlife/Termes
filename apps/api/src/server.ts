@@ -195,11 +195,6 @@ function githubOAuthConfigured(): boolean {
 }
 
 function githubClientSecret(): string {
-  const plain = process.env.GITHUB_CLIENT_SECRET?.trim();
-  if (plain) {
-    return plain;
-  }
-
   const encrypted = process.env.GITHUB_CLIENT_SECRET_ENC?.trim();
   if (!encrypted) {
     return "";
