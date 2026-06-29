@@ -185,6 +185,14 @@ function resolveProjectSandboxPath(relativePath: string): string {
   return candidate;
 }
 
+async function makeWorkspacePathWritable(absolutePath: string): Promise<void> {
+  const candidate = path.resolve(absolutePath);
+  if (candidate !== workspaceRootPath && !candidate.startsWith(`${workspaceRootPath}${path.sep}`)) {
+    throw new Error(`Workspace path must be under ${workspaceRootPath}`);
+  }
+  await execFileAsync("chmod", ["-R", "a+rwX", candidate]);
+}
+
 function safeReturnTo(value: unknown): string {
   const candidate = typeof value === "string" ? value : "/";
   return candidate.startsWith("/") && !candidate.startsWith("//") ? candidate : "/";
@@ -1143,6 +1151,7 @@ async function main(): Promise<void> {
       }
 
       await mkdir(workspacePath, { recursive: true });
+      await makeWorkspacePathWritable(workspacePath);
       await client.query(
         `
           insert into workspace_roots (project_id, host_path)
@@ -1182,6 +1191,7 @@ async function main(): Promise<void> {
     const folderRelativePath = normalizeRelativeWorkspacePath(path.posix.join(parentPath, folderName));
     const folderAbsolutePath = resolveProjectSandboxPath(folderRelativePath);
     await mkdir(folderAbsolutePath, { recursive: true });
+    await makeWorkspacePathWritable(folderAbsolutePath);
 
     return reply.code(201).send({
       workspaceId: "termes",
@@ -1268,12 +1278,14 @@ async function main(): Promise<void> {
     const targetAbsolutePath = resolveProjectSandboxPath(targetRelativePath);
 
     await mkdir(path.dirname(targetAbsolutePath), { recursive: true });
+    await makeWorkspacePathWritable(path.dirname(targetAbsolutePath));
     try {
       await cloneGithubRepository({
         repositoryFullName: input.repositoryFullName,
         targetAbsolutePath,
         token: connection.accessToken,
       });
+      await makeWorkspacePathWritable(targetAbsolutePath);
     } catch (error) {
       return reply.code(409).send({
         error: error instanceof Error ? error.message.replace(connection.accessToken, "[REDACTED]") : "GitHub clone failed",
@@ -1346,12 +1358,14 @@ async function main(): Promise<void> {
     const targetAbsolutePath = resolveProjectSandboxPath(targetRelativePath);
 
     await mkdir(path.dirname(targetAbsolutePath), { recursive: true });
+    await makeWorkspacePathWritable(path.dirname(targetAbsolutePath));
     try {
       await cloneGithubRepository({
         repositoryFullName: input.repositoryFullName,
         targetAbsolutePath,
         token: connection.accessToken,
       });
+      await makeWorkspacePathWritable(targetAbsolutePath);
     } catch (error) {
       return reply.code(409).send({
         error: error instanceof Error ? error.message.replace(connection.accessToken, "[REDACTED]") : "GitHub clone failed",
