@@ -66,7 +66,27 @@ export interface GitHubConnectionSummary {
   profileUrl: string | null;
   linkedAt: string | null;
   oauthConfigured: boolean;
+  deviceConfigured: boolean;
   callbackUrl: string;
+}
+
+export interface GitHubDeviceLoginStartSummary {
+  configured: boolean;
+  message: string;
+  sessionId: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string | null;
+  expiresAt: string;
+  interval: number;
+  scope: string;
+}
+
+export interface GitHubDeviceLoginPollSummary {
+  status: "pending" | "complete";
+  message: string;
+  nextInterval: number | null;
+  github: GitHubConnectionSummary;
 }
 
 export interface GitHubRepositorySummary {

@@ -543,6 +543,63 @@ svg {
   font-size: 12px;
 }
 
+.githubDeviceCard {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.githubDeviceCard strong,
+.githubDeviceCard span {
+  display: block;
+}
+
+.githubDeviceCard strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.githubDeviceCard input {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+  border: 1px solid rgba(147, 197, 253, 0.34);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbeafe;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.githubDeviceCard span {
+  margin-top: 7px;
+  color: #bfdbfe;
+  font-size: 12px;
+}
+
+.githubDeviceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.githubDeviceActions a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #bfdbfe;
+  font-size: 12px;
+  text-decoration: none;
+}
+
 .githubRepositoryList {
   display: grid;
   max-height: 280px;
@@ -1296,7 +1353,8 @@ svg {
 
   .githubAuthActions .aliasActionButton,
   .githubManualRow .aliasActionButton,
-  .githubCloneCompleteCard .aliasActionButton {
+  .githubCloneCompleteCard .aliasActionButton,
+  .githubDeviceActions .aliasActionButton {
     flex: 0 0 auto;
     min-width: 72px;
     min-height: 46px;

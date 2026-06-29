@@ -95,6 +95,7 @@ const workspaceProjectsRootPath = path.join(workspaceRootPath, "projects");
 const githubSecretsRootPath = path.resolve(process.env.GITHUB_SECRETS_ROOT || "/data/docker_data/termes/secrets");
 const githubConnectionFilePath = path.join(githubSecretsRootPath, "github-connection.json");
 const execFileAsync = promisify(execFile);
+const githubDeviceSessionPrefix = "github.oauth.device.";
 
 type ProjectRow = {
   id: string;
@@ -129,6 +130,16 @@ type GitHubApiRepository = {
   owner?: {
     login?: string;
   };
+};
+
+type GitHubDeviceSession = {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string | null;
+  expiresAt: string;
+  interval: number;
+  scope: string;
 };
 
 function resolveProjectWorkspacePath(projectKey: string, requestedPath?: string): string {
@@ -198,8 +209,16 @@ function githubOAuthCallbackUrl(request: { headers: Record<string, unknown> }): 
   return `${buildExternalBaseUrl(request)}/api/github/oauth/callback`;
 }
 
+function githubOAuthScope(): string {
+  return process.env.GITHUB_OAUTH_SCOPE?.trim() || "repo read:org";
+}
+
 function githubOAuthConfigured(): boolean {
   return Boolean(process.env.GITHUB_CLIENT_ID?.trim() && githubClientSecret());
+}
+
+function githubDeviceConfigured(): boolean {
+  return Boolean(process.env.GITHUB_CLIENT_ID?.trim());
 }
 
 function githubClientSecret(): string {
@@ -277,8 +296,36 @@ function githubConnectionSummary(record: GitHubConnectionRecord | null, request:
     profileUrl: record?.profileUrl ?? null,
     linkedAt: record?.linkedAt ?? null,
     oauthConfigured: githubOAuthConfigured(),
+    deviceConfigured: githubDeviceConfigured(),
     callbackUrl: githubOAuthCallbackUrl(request),
   };
+}
+
+async function requestGitHubOAuthForm(endpoint: string, params: Record<string, string>): Promise<Record<string, unknown>> {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": "termes",
+    },
+    body: new URLSearchParams(params),
+  });
+  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!response.ok) {
+    throw new Error(typeof payload?.message === "string" ? payload.message : "GitHub OAuth request failed");
+  }
+  return payload ?? {};
+}
+
+function readOAuthText(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function readOAuthNumber(payload: Record<string, unknown>, key: string, defaultValue: number): number {
+  const value = payload[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : defaultValue;
 }
 
 async function githubApi<T>(pathname: string, token: string): Promise<T> {
@@ -765,11 +812,138 @@ async function main(): Promise<void> {
       oauthUrl.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID?.trim() || "");
       oauthUrl.searchParams.set("redirect_uri", githubOAuthCallbackUrl(request));
       oauthUrl.searchParams.set("state", state);
-      oauthUrl.searchParams.set("scope", "repo read:org");
+      oauthUrl.searchParams.set("scope", githubOAuthScope());
 
       return reply.header("location", oauthUrl.toString()).code(302).send();
     });
   }
+
+  app.post("/api/github/oauth/device/start", async (request) => {
+    const clientId = process.env.GITHUB_CLIENT_ID?.trim();
+    const scope = githubOAuthScope();
+    if (!clientId) {
+      return {
+        configured: false,
+        message: "GitHub OAuth client id is not configured",
+        sessionId: "",
+        userCode: "",
+        verificationUri: "",
+        verificationUriComplete: null,
+        expiresAt: "",
+        interval: 0,
+        scope,
+      };
+    }
+
+    const payload = await requestGitHubOAuthForm("https://github.com/login/device/code", {
+      client_id: clientId,
+      scope,
+    });
+    const deviceCode = readOAuthText(payload, "device_code");
+    const userCode = readOAuthText(payload, "user_code");
+    const verificationUri = readOAuthText(payload, "verification_uri");
+    const verificationUriComplete = readOAuthText(payload, "verification_uri_complete") || null;
+    const expiresIn = Math.max(60, readOAuthNumber(payload, "expires_in", 900));
+    const interval = Math.max(5, readOAuthNumber(payload, "interval", 5));
+    if (!deviceCode || !userCode || !verificationUri) {
+      throw new Error("GitHub device login response is invalid");
+    }
+
+    const sessionId = randomBytes(18).toString("hex");
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    const session: GitHubDeviceSession = {
+      deviceCode,
+      userCode,
+      verificationUri,
+      verificationUriComplete,
+      expiresAt,
+      interval,
+      scope,
+    };
+    await redis.set(`${githubDeviceSessionPrefix}${sessionId}`, JSON.stringify(session), "EX", expiresIn);
+
+    return {
+      configured: true,
+      message: "GitHub device login started",
+      sessionId,
+      userCode,
+      verificationUri,
+      verificationUriComplete,
+      expiresAt,
+      interval,
+      scope,
+      github: githubConnectionSummary(await readGithubConnection(), request),
+    };
+  });
+
+  app.post("/api/github/oauth/device/poll", async (request, reply) => {
+    const clientId = process.env.GITHUB_CLIENT_ID?.trim();
+    if (!clientId) {
+      return reply.code(503).send({ error: "GitHub OAuth client id is not configured" });
+    }
+
+    const input = z.object({ sessionId: z.string().trim().min(1) }).parse(request.body);
+    const sessionKey = `${githubDeviceSessionPrefix}${input.sessionId}`;
+    const rawSession = await redis.get(sessionKey);
+    if (!rawSession) {
+      return reply.code(404).send({ error: "GitHub device login session was not found or expired" });
+    }
+    const session = JSON.parse(rawSession) as GitHubDeviceSession;
+    if (Date.parse(session.expiresAt) <= Date.now()) {
+      await redis.del(sessionKey);
+      return reply.code(410).send({ error: "GitHub device login code expired" });
+    }
+
+    const payload = await requestGitHubOAuthForm("https://github.com/login/oauth/access_token", {
+      client_id: clientId,
+      device_code: session.deviceCode,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    });
+    const errorCode = readOAuthText(payload, "error");
+    if (errorCode === "authorization_pending") {
+      return {
+        status: "pending",
+        message: "GitHub approval is still pending",
+        nextInterval: session.interval,
+        github: githubConnectionSummary(await readGithubConnection(), request),
+      };
+    }
+    if (errorCode === "slow_down") {
+      const nextInterval = session.interval + 5;
+      await redis.set(sessionKey, JSON.stringify({ ...session, interval: nextInterval }), "KEEPTTL");
+      return {
+        status: "pending",
+        message: "GitHub asked to slow down polling",
+        nextInterval,
+        github: githubConnectionSummary(await readGithubConnection(), request),
+      };
+    }
+    if (errorCode) {
+      await redis.del(sessionKey);
+      return reply.code(400).send({ error: readOAuthText(payload, "error_description") || `GitHub OAuth error: ${errorCode}` });
+    }
+
+    const accessToken = readOAuthText(payload, "access_token");
+    if (!accessToken) {
+      return reply.code(502).send({ error: "GitHub OAuth access token was not returned" });
+    }
+    const user = await githubApi<GitHubApiUser>("/user", accessToken);
+    await writeGithubConnection({
+      accessToken,
+      login: user.login || null,
+      avatarUrl: user.avatar_url || null,
+      profileUrl: user.html_url || null,
+      linkedAt: new Date().toISOString(),
+    });
+    await redis.del(sessionKey);
+
+    return {
+      status: "complete",
+      message: `${user.login || "GitHub"} GitHub account connected`,
+      nextInterval: null,
+      github: githubConnectionSummary(await readGithubConnection(), request),
+    };
+  });
 
   app.get("/api/github/oauth/callback", async (request, reply) => {
     if (!githubOAuthConfigured()) {

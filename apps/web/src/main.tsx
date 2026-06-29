@@ -40,6 +40,7 @@ import { createRoot } from "react-dom/client";
 import type {
   EventType,
   GitHubConnectionSummary,
+  GitHubDeviceLoginStartSummary,
   GitHubRepositoryGroupSummary,
   HermesCatalogSummary,
   HermesCapabilitySummary,
@@ -82,9 +83,11 @@ import {
   fetchTasks,
   forkHermesSession,
   pauseHermesJob,
+  pollGitHubDeviceLogin,
   resolveHermesApproval,
   resumeHermesJob,
   runHermesJob,
+  startGitHubDeviceLogin,
   registerProjectFolder,
   sendTaskMessage,
   sendHermesSessionChat,
@@ -320,6 +323,7 @@ function App(): JSX.Element {
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
   const [githubNewFolderName, setGithubNewFolderName] = useState("");
   const [pendingGithubClone, setPendingGithubClone] = useState<GitHubCloneResult | null>(null);
+  const [githubDeviceLogin, setGithubDeviceLogin] = useState<GitHubDeviceLoginStartSummary | null>(null);
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubMessage, setGithubMessage] = useState("GitHub 로그인 후 저장소를 clone해서 프로젝트로 등록할 수 있습니다.");
   const [hermesPrompt, setHermesPrompt] = useState("Inspect Termes runtime and report status.");
@@ -494,12 +498,61 @@ function App(): JSX.Element {
   function openProjectDrawer(mode: "folder" | "github" = "folder"): void {
     setProjectCreateMode(mode);
     setPendingGithubClone(null);
+    setGithubDeviceLogin(null);
     setProjectPanelOpen(true);
   }
 
   function startGitHubLogin(): void {
     const returnTo = `${window.location.pathname}${window.location.search}`;
     window.location.assign(`/api/github/oauth/login?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  async function handleStartGitHubDeviceLogin(): Promise<void> {
+    setGithubBusy(true);
+    setGithubMessage("GitHub device login 코드를 발급하는 중입니다.");
+    try {
+      const device = await startGitHubDeviceLogin();
+      if (!device.configured) {
+        setGithubDeviceLogin(null);
+        setGithubMessage(device.message);
+        return;
+      }
+      setGithubDeviceLogin(device);
+      setGithubMessage("GitHub 승인 페이지에서 코드를 입력한 뒤 승인 완료 확인을 눌러 주세요.");
+      navigator.clipboard?.writeText(device.userCode).catch(() => undefined);
+      window.open(device.verificationUriComplete || device.verificationUri, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGithubBusy(false);
+    }
+  }
+
+  async function handlePollGitHubDeviceLogin(): Promise<void> {
+    if (!githubDeviceLogin?.sessionId) {
+      setGithubMessage("진행 중인 GitHub device login이 없습니다.");
+      return;
+    }
+
+    setGithubBusy(true);
+    setGithubMessage("GitHub 승인 완료 여부를 확인하는 중입니다.");
+    try {
+      const result = await pollGitHubDeviceLogin(githubDeviceLogin.sessionId);
+      setGithubStatus(result.github);
+      if (result.status === "pending") {
+        setGithubDeviceLogin((current) => current ? { ...current, interval: result.nextInterval || current.interval } : current);
+        setGithubMessage(result.message);
+        return;
+      }
+      setGithubDeviceLogin(null);
+      setGithubMessage(result.message);
+      const groups = await fetchGitHubRepositories();
+      setGithubRepositoryGroups(groups);
+    } catch (cause) {
+      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGithubBusy(false);
+    }
   }
 
   async function handleDisconnectGitHub(): Promise<void> {
@@ -509,6 +562,7 @@ function App(): JSX.Element {
       const status = await disconnectGitHub();
       setGithubStatus(status);
       setGithubRepositoryGroups([]);
+      setGithubDeviceLogin(null);
       setGithubMessage("GitHub 연결을 해제했습니다.");
     } catch (cause) {
       setGithubMessage(cause instanceof Error ? cause.message : String(cause));
@@ -2123,10 +2177,60 @@ function App(): JSX.Element {
                         <Github size={15} />
                         {githubConnected ? "다른 계정 로그인" : "GitHub 로그인"}
                       </button>
+                      {!githubConnected ? (
+                        <button
+                          className="aliasActionButton secondary"
+                          type="button"
+                          disabled={githubBusy || !githubStatus?.deviceConfigured}
+                          onClick={() => {
+                            handleStartGitHubDeviceLogin().catch((cause: unknown) => {
+                              setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                            });
+                          }}
+                        >
+                          Device 코드
+                        </button>
+                      ) : null}
                     </div>
                   </section>
 
                   <p className="projectDrawerMessage">{githubBusy ? "GitHub 작업 처리 중..." : githubMessage}</p>
+
+                  {githubDeviceLogin ? (
+                    <section className="githubDeviceCard">
+                      <div>
+                        <strong>GitHub verification code</strong>
+                        <input readOnly value={githubDeviceLogin.userCode} aria-label="GitHub verification code" />
+                        <span>{new Date(githubDeviceLogin.expiresAt).toLocaleTimeString("ko-KR")}까지 유효</span>
+                      </div>
+                      <div className="githubDeviceActions">
+                        <a href={githubDeviceLogin.verificationUriComplete || githubDeviceLogin.verificationUri} target="_blank" rel="noreferrer">
+                          github.com/login/device
+                        </a>
+                        <button
+                          className="aliasActionButton secondary"
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(githubDeviceLogin.userCode).catch(() => undefined);
+                          }}
+                        >
+                          코드 복사
+                        </button>
+                        <button
+                          className="aliasActionButton primary"
+                          type="button"
+                          disabled={githubBusy}
+                          onClick={() => {
+                            handlePollGitHubDeviceLogin().catch((cause: unknown) => {
+                              setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                            });
+                          }}
+                        >
+                          승인 완료 확인
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
 
                   <label className="projectDrawerField">
                     <span>Clone 상위 폴더</span>

@@ -1,6 +1,8 @@
 import type {
   GitHubCloneProjectSummary,
   GitHubConnectionSummary,
+  GitHubDeviceLoginPollSummary,
+  GitHubDeviceLoginStartSummary,
   GitHubRepositoryGroupSummary,
   HermesCatalogSummary,
   HermesCapabilitySummary,
@@ -96,6 +98,32 @@ export async function disconnectGitHub(): Promise<GitHubConnectionSummary> {
 
   const data = (await response.json()) as { github: GitHubConnectionSummary };
   return data.github;
+}
+
+export async function startGitHubDeviceLogin(): Promise<GitHubDeviceLoginStartSummary> {
+  const response = await fetch("/api/github/oauth/device/start", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to start GitHub device login: ${response.status}`);
+  }
+  return (await response.json()) as GitHubDeviceLoginStartSummary;
+}
+
+export async function pollGitHubDeviceLogin(sessionId: string): Promise<GitHubDeviceLoginPollSummary> {
+  const response = await fetch("/api/github/oauth/device/poll", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to poll GitHub device login: ${response.status}`);
+  }
+  return (await response.json()) as GitHubDeviceLoginPollSummary;
 }
 
 export async function createProjectFolder(input: {
