@@ -21,7 +21,7 @@ import Redis from "ioredis";
 import { execFile } from "node:child_process";
 import { createDecipheriv, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -132,6 +132,13 @@ type GitHubApiRepository = {
   };
 };
 
+type ProjectFolderRow = {
+  path: string;
+  name: string;
+  type: "directory";
+  depth: number;
+};
+
 type GitHubDeviceSession = {
   deviceCode: string;
   userCode: string;
@@ -199,6 +206,37 @@ async function makeWorkspaceDirectoryWritable(absolutePath: string): Promise<voi
     throw new Error(`Workspace path must be under ${workspaceRootPath}`);
   }
   await chmod(candidate, 0o777);
+}
+
+async function listProjectFolders(): Promise<ProjectFolderRow[]> {
+  await mkdir(workspaceProjectsRootPath, { recursive: true });
+  await makeWorkspaceDirectoryWritable(workspaceProjectsRootPath);
+  const rows: ProjectFolderRow[] = [];
+
+  async function walk(absolutePath: string, relativePath: string, depth: number): Promise<void> {
+    if (depth > 4) {
+      return;
+    }
+    const entries = await readdir(absolutePath, { withFileTypes: true });
+    const directories = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of directories) {
+      const childRelativePath = normalizeRelativeWorkspacePath(path.posix.join(relativePath, entry.name));
+      const childAbsolutePath = resolveProjectSandboxPath(childRelativePath);
+      rows.push({
+        path: childRelativePath,
+        name: entry.name,
+        type: "directory",
+        depth,
+      });
+      await walk(childAbsolutePath, childRelativePath, depth + 1);
+    }
+  }
+
+  await walk(workspaceProjectsRootPath, "", 0);
+  return rows;
 }
 
 function safeReturnTo(value: unknown): string {
@@ -1209,6 +1247,14 @@ async function main(): Promise<void> {
       path: folderRelativePath,
       absolutePath: folderAbsolutePath,
     });
+  });
+
+  app.get("/api/projects/folders", async () => {
+    return {
+      workspaceId: "termes",
+      rootPath: workspaceProjectsRootPath,
+      folders: await listProjectFolders(),
+    };
   });
 
   app.post("/api/projects/folder", async (request, reply) => {

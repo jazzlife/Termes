@@ -12,6 +12,7 @@ import type {
   HermesUpstreamDiagnostics,
   HermesRunSummary,
   PlatformEvent,
+  ProjectFolderSummary,
   ProjectSummary,
   ChatMessageSummary,
   TaskRuntimeSummary,
@@ -143,6 +144,16 @@ export async function createProjectFolder(input: {
   }
 
   return (await response.json()) as { workspaceId: string; name: string; path: string; absolutePath: string };
+}
+
+export async function fetchProjectFolders(): Promise<ProjectFolderSummary[]> {
+  const response = await fetch("/api/projects/folders");
+  if (!response.ok) {
+    throw new Error(`Failed to fetch project folders: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { folders: ProjectFolderSummary[] };
+  return data.folders;
 }
 
 export async function cloneGitHubRepository(input: {

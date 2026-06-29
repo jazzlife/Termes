@@ -462,6 +462,71 @@ svg {
   gap: 14px;
 }
 
+.projectFolderPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.projectDirectoryTree {
+  display: grid;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.projectDirectoryTree button {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #dbe4ef;
+  font: inherit;
+  text-align: left;
+}
+
+.projectDirectoryTree button:last-child {
+  border-bottom: 0;
+}
+
+.projectDirectoryTree button.active {
+  background: rgba(216, 199, 120, 0.16);
+  color: #ffffff;
+}
+
+.projectDirectoryTree span,
+.projectDirectoryTree small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectDirectoryTree span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.projectDirectoryTree small {
+  grid-column: 2;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.projectDirectoryEmpty {
+  padding: 16px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
 .githubAuthCard {
   display: flex;
   align-items: center;
@@ -1364,6 +1429,10 @@ svg {
 
   .githubManualRow {
     grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
+  }
+
+  .projectDirectoryTree {
+    max-height: 210px;
   }
 
   .githubCloneCompleteCard {

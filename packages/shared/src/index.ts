@@ -59,6 +59,13 @@ export interface ProjectSummary {
   updatedAt: string;
 }
 
+export interface ProjectFolderSummary {
+  path: string;
+  name: string;
+  type: "directory";
+  depth: number;
+}
+
 export interface GitHubConnectionSummary {
   connected: boolean;
   login: string | null;
