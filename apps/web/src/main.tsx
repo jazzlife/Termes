@@ -53,7 +53,7 @@ import type {
 } from "@termes/shared";
 import {
   connectEvents,
-  cloneGitHubProject,
+  cloneGitHubRepository,
   createHermesChatCompletion,
   createHermesJob,
   createHermesProfile,
@@ -85,10 +85,12 @@ import {
   resolveHermesApproval,
   resumeHermesJob,
   runHermesJob,
+  registerProjectFolder,
   sendTaskMessage,
   sendHermesSessionChat,
   stopHermesRun,
   streamHermesChatCompletion,
+  type GitHubCloneResult,
   type HermesStreamEvent,
   streamHermesResponse,
   streamHermesRunEvents,
@@ -317,6 +319,7 @@ function App(): JSX.Element {
   const [githubManualRepository, setGithubManualRepository] = useState("");
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
   const [githubNewFolderName, setGithubNewFolderName] = useState("");
+  const [pendingGithubClone, setPendingGithubClone] = useState<GitHubCloneResult | null>(null);
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubMessage, setGithubMessage] = useState("GitHub 로그인 후 저장소를 clone해서 프로젝트로 등록할 수 있습니다.");
   const [hermesPrompt, setHermesPrompt] = useState("Inspect Termes runtime and report status.");
@@ -490,6 +493,7 @@ function App(): JSX.Element {
 
   function openProjectDrawer(mode: "folder" | "github" = "folder"): void {
     setProjectCreateMode(mode);
+    setPendingGithubClone(null);
     setProjectPanelOpen(true);
   }
 
@@ -545,17 +549,41 @@ function App(): JSX.Element {
     }
 
     setGithubBusy(true);
-    setGithubMessage(`${fullName} 저장소를 clone하고 프로젝트로 등록하는 중입니다.`);
+    setGithubMessage(`${fullName} 저장소를 clone하는 중입니다.`);
     try {
-      const result = await cloneGitHubProject({
+      const result = await cloneGitHubRepository({
         repositoryFullName: fullName,
         ...(githubCloneParentPath.trim() ? { parentPath: githubCloneParentPath.trim() } : {}),
       });
+      setPendingGithubClone(result);
       setGithubManualRepository("");
+      setGithubCloneParentPath(result.path);
+      setGithubMessage(`${result.path}에 clone했습니다. 프로젝트 등록을 눌러 목록에 추가해 주세요.`);
+    } catch (cause) {
+      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGithubBusy(false);
+    }
+  }
+
+  async function handleRegisterPendingGitHubClone(): Promise<void> {
+    if (!pendingGithubClone) {
+      setGithubMessage("먼저 GitHub 저장소를 clone해 주세요.");
+      return;
+    }
+
+    setGithubBusy(true);
+    setGithubMessage(`${pendingGithubClone.path} clone 결과를 프로젝트로 등록하는 중입니다.`);
+    try {
+      const result = await registerProjectFolder({
+        path: pendingGithubClone.path,
+        name: pendingGithubClone.name,
+      });
+      setPendingGithubClone(null);
       setGithubCloneParentPath("");
       setProjectPanelOpen(false);
       setProjectCreateMode("folder");
-      setGithubMessage(`${fullName} 저장소를 프로젝트로 등록했습니다.`);
+      setGithubMessage(`${pendingGithubClone.path} 프로젝트를 등록했습니다.`);
       await refresh(result.project.id);
     } catch (cause) {
       setGithubMessage(cause instanceof Error ? cause.message : String(cause));
@@ -2133,6 +2161,27 @@ function App(): JSX.Element {
                       </button>
                     </div>
                   </label>
+
+                  {pendingGithubClone ? (
+                    <section className="githubCloneCompleteCard">
+                      <div>
+                        <strong>{pendingGithubClone.repositoryFullName}</strong>
+                        <span>{pendingGithubClone.path}에 clone했습니다.</span>
+                      </div>
+                      <button
+                        className="aliasActionButton primary"
+                        type="button"
+                        disabled={githubBusy}
+                        onClick={() => {
+                          handleRegisterPendingGitHubClone().catch((cause: unknown) => {
+                            setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                          });
+                        }}
+                      >
+                        프로젝트 등록
+                      </button>
+                    </section>
+                  ) : null}
 
                   <label className="projectDrawerField">
                     <span>저장소 직접 입력</span>

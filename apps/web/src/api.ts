@@ -21,6 +21,14 @@ export interface HermesStreamEvent {
   data: unknown;
 }
 
+export interface GitHubCloneResult {
+  workspaceId: string;
+  repositoryFullName: string;
+  name: string;
+  path: string;
+  workspacePath: string;
+}
+
 export async function fetchProjects(): Promise<ProjectSummary[]> {
   const response = await fetch("/api/projects");
   if (!response.ok) {
@@ -107,6 +115,46 @@ export async function createProjectFolder(input: {
   }
 
   return (await response.json()) as { workspaceId: string; name: string; path: string; absolutePath: string };
+}
+
+export async function cloneGitHubRepository(input: {
+  repositoryFullName: string;
+  parentPath?: string;
+}): Promise<GitHubCloneResult> {
+  const response = await fetch("/api/projects/clone", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to clone GitHub repository: ${response.status}`);
+  }
+
+  return (await response.json()) as GitHubCloneResult;
+}
+
+export async function registerProjectFolder(input: {
+  path: string;
+  name?: string;
+}): Promise<{ project: ProjectSummary; path: string; workspacePath: string }> {
+  const response = await fetch("/api/projects/folder", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to register project folder: ${response.status}`);
+  }
+
+  return (await response.json()) as { project: ProjectSummary; path: string; workspacePath: string };
 }
 
 export async function cloneGitHubProject(input: {

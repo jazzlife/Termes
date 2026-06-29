@@ -1123,8 +1123,44 @@ async function main(): Promise<void> {
     });
   }
 
+  async function handleGitHubProjectCloneOnly(request: FastifyRequest, reply: FastifyReply) {
+    const input = githubCloneInputSchema.parse(request.body);
+    const connection = await readGithubConnection();
+    if (!connection) {
+      return reply.code(401).send({ error: "GitHub login is required" });
+    }
+
+    const repositoryName = input.repositoryFullName.split("/")[1];
+    if (!repositoryName) {
+      return reply.code(400).send({ error: "GitHub repository name is invalid" });
+    }
+    const targetRelativePath = normalizeRelativeWorkspacePath(path.posix.join(input.parentPath || "", repositoryName));
+    const targetAbsolutePath = resolveProjectSandboxPath(targetRelativePath);
+
+    await mkdir(path.dirname(targetAbsolutePath), { recursive: true });
+    try {
+      await cloneGithubRepository({
+        repositoryFullName: input.repositoryFullName,
+        targetAbsolutePath,
+        token: connection.accessToken,
+      });
+    } catch (error) {
+      return reply.code(409).send({
+        error: error instanceof Error ? error.message.replace(connection.accessToken, "[REDACTED]") : "GitHub clone failed",
+      });
+    }
+
+    return reply.code(202).send({
+      workspaceId: "termes",
+      repositoryFullName: input.repositoryFullName,
+      name: repositoryName,
+      path: targetRelativePath,
+      workspacePath: targetAbsolutePath,
+    });
+  }
+
   app.post("/api/projects/github-clone", handleGitHubProjectClone);
-  app.post("/api/projects/clone", handleGitHubProjectClone);
+  app.post("/api/projects/clone", handleGitHubProjectCloneOnly);
 
   app.patch("/api/projects/:projectId", async (request, reply) => {
     const params = z.object({ projectId: z.string().uuid() }).parse(request.params);

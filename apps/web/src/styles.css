@@ -512,6 +512,37 @@ svg {
   gap: 8px;
 }
 
+.githubCloneCompleteCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.githubCloneCompleteCard strong,
+.githubCloneCompleteCard span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.githubCloneCompleteCard strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.githubCloneCompleteCard span {
+  margin-top: 3px;
+  color: #bbf7d0;
+  font-size: 12px;
+}
+
 .githubRepositoryList {
   display: grid;
   max-height: 280px;
@@ -1229,10 +1260,56 @@ svg {
   .projectDrawer {
     width: 100%;
     max-height: calc(100dvh - 42px);
+    gap: 14px;
+    padding: 18px 16px max(18px, env(safe-area-inset-bottom));
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
     border-radius: 18px 18px 0 0;
+  }
+
+  .projectDrawerHeader .aliasIconButton {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+
+  .projectDrawerTabs button {
+    height: 44px;
+    font-size: 13px;
+  }
+
+  .projectDrawerField input,
+  .projectDrawerField textarea {
+    min-height: 46px;
+    font-size: 16px;
+  }
+
+  .githubAuthCard {
+    align-items: stretch;
+  }
+
+  .githubAuthActions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .githubAuthActions .aliasActionButton,
+  .githubManualRow .aliasActionButton,
+  .githubCloneCompleteCard .aliasActionButton {
+    flex: 0 0 auto;
+    min-width: 72px;
+    min-height: 46px;
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .githubManualRow {
+    grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
+  }
+
+  .githubCloneCompleteCard {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .projectDrawerActions {
