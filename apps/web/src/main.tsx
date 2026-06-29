@@ -2245,6 +2245,7 @@ function App(): JSX.Element {
                     <button
                       className="aliasActionButton secondary"
                       type="button"
+                      data-testid="create-folder-workspace"
                       disabled={folderBusy || !folderNewFolderName.trim()}
                       onClick={() => {
                         handleCreateFolderWorkspace().catch((cause: unknown) => {
@@ -2398,6 +2399,7 @@ function App(): JSX.Element {
                       <button
                         className="aliasActionButton secondary"
                         type="button"
+                        data-testid="github-create-folder"
                         disabled={githubBusy || !githubNewFolderName.trim()}
                         onClick={() => {
                           handleCreateGitHubProjectFolder().catch((cause: unknown) => {
