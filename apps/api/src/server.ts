@@ -193,6 +193,14 @@ async function makeWorkspacePathWritable(absolutePath: string): Promise<void> {
   await execFileAsync("chmod", ["-R", "a+rwX", candidate]);
 }
 
+async function makeWorkspaceDirectoryWritable(absolutePath: string): Promise<void> {
+  const candidate = path.resolve(absolutePath);
+  if (candidate !== workspaceRootPath && !candidate.startsWith(`${workspaceRootPath}${path.sep}`)) {
+    throw new Error(`Workspace path must be under ${workspaceRootPath}`);
+  }
+  await chmod(candidate, 0o777);
+}
+
 function safeReturnTo(value: unknown): string {
   const candidate = typeof value === "string" ? value : "/";
   return candidate.startsWith("/") && !candidate.startsWith("//") ? candidate : "/";
@@ -1151,6 +1159,7 @@ async function main(): Promise<void> {
       }
 
       await mkdir(workspacePath, { recursive: true });
+      await makeWorkspaceDirectoryWritable(path.dirname(workspacePath));
       await makeWorkspacePathWritable(workspacePath);
       await client.query(
         `
@@ -1191,6 +1200,7 @@ async function main(): Promise<void> {
     const folderRelativePath = normalizeRelativeWorkspacePath(path.posix.join(parentPath, folderName));
     const folderAbsolutePath = resolveProjectSandboxPath(folderRelativePath);
     await mkdir(folderAbsolutePath, { recursive: true });
+    await makeWorkspaceDirectoryWritable(path.dirname(folderAbsolutePath));
     await makeWorkspacePathWritable(folderAbsolutePath);
 
     return reply.code(201).send({
@@ -1278,7 +1288,7 @@ async function main(): Promise<void> {
     const targetAbsolutePath = resolveProjectSandboxPath(targetRelativePath);
 
     await mkdir(path.dirname(targetAbsolutePath), { recursive: true });
-    await makeWorkspacePathWritable(path.dirname(targetAbsolutePath));
+    await makeWorkspaceDirectoryWritable(path.dirname(targetAbsolutePath));
     try {
       await cloneGithubRepository({
         repositoryFullName: input.repositoryFullName,
@@ -1358,7 +1368,7 @@ async function main(): Promise<void> {
     const targetAbsolutePath = resolveProjectSandboxPath(targetRelativePath);
 
     await mkdir(path.dirname(targetAbsolutePath), { recursive: true });
-    await makeWorkspacePathWritable(path.dirname(targetAbsolutePath));
+    await makeWorkspaceDirectoryWritable(path.dirname(targetAbsolutePath));
     try {
       await cloneGithubRepository({
         repositoryFullName: input.repositoryFullName,
