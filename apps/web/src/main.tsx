@@ -847,6 +847,20 @@ function App(): JSX.Element {
   }, [projectPanelOpen, projectCreateMode]);
 
   useEffect(() => {
+    if (!projectPanelOpen || projectCreateMode !== "github" || !githubDeviceLogin || githubBusy || githubConnected) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      handlePollGitHubDeviceLogin().catch((cause: unknown) => {
+        setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+      });
+    }, Math.max(5, githubDeviceLogin.interval) * 1000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [githubDeviceLogin, githubBusy, githubConnected, projectCreateMode, projectPanelOpen]);
+
+  useEffect(() => {
     if (!projectPanelOpen) {
       return;
     }
