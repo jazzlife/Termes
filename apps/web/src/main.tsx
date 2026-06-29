@@ -475,8 +475,8 @@ function App(): JSX.Element {
         setGithubRepositoryGroups([]);
         setGithubMessage(
           status.oauthConfigured
-            ? "GitHub 로그인을 완료하면 저장소 목록을 불러옵니다."
-            : "GitHub OAuth 설정이 필요합니다. 서버 .env에 GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET을 설정해 주세요.",
+            ? `GitHub App callback URL: ${status.callbackUrl}`
+            : "GitHub OAuth 설정이 필요합니다. 서버 .env에 GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET_ENC를 설정해 주세요.",
         );
         return;
       }

@@ -66,6 +66,7 @@ export interface GitHubConnectionSummary {
   profileUrl: string | null;
   linkedAt: string | null;
   oauthConfigured: boolean;
+  callbackUrl: string;
 }
 
 export interface GitHubRepositorySummary {

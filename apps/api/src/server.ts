@@ -269,7 +269,7 @@ async function clearGithubConnection(): Promise<"cleared" | "env-token"> {
   return "cleared";
 }
 
-function githubConnectionSummary(record: GitHubConnectionRecord | null) {
+function githubConnectionSummary(record: GitHubConnectionRecord | null, request: { headers: Record<string, unknown> }) {
   return {
     connected: Boolean(record),
     login: record?.login ?? null,
@@ -277,6 +277,7 @@ function githubConnectionSummary(record: GitHubConnectionRecord | null) {
     profileUrl: record?.profileUrl ?? null,
     linkedAt: record?.linkedAt ?? null,
     oauthConfigured: githubOAuthConfigured(),
+    callbackUrl: githubOAuthCallbackUrl(request),
   };
 }
 
@@ -741,8 +742,8 @@ async function main(): Promise<void> {
   app.get("/api/health", healthPayload);
   app.get("/api/healthz", healthPayload);
 
-  app.get("/api/github/status", async () => {
-    return { github: githubConnectionSummary(await readGithubConnection()) };
+  app.get("/api/github/status", async (request) => {
+    return { github: githubConnectionSummary(await readGithubConnection(), request) };
   });
 
   for (const oauthStartPath of ["/api/github/oauth/start", "/api/github/oauth/login"]) {
@@ -831,12 +832,12 @@ async function main(): Promise<void> {
     return reply.header("location", redirectUrl.toString()).code(302).send();
   });
 
-  app.post("/api/github/oauth/logout", async (_request, reply) => {
+  app.post("/api/github/oauth/logout", async (request, reply) => {
     const result = await clearGithubConnection();
     if (result === "env-token") {
       return reply.code(409).send({ error: "GitHub is connected by GITHUB_TOKEN; remove the server environment variable to disconnect." });
     }
-    return { github: githubConnectionSummary(await readGithubConnection()) };
+    return { github: githubConnectionSummary(await readGithubConnection(), request) };
   });
 
   app.get("/api/github/repositories", async (request, reply) => {
