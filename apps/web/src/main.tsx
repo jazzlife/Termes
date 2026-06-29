@@ -68,6 +68,7 @@ import {
   deleteHermesResponse,
   deleteHermesSession,
   deleteTask,
+  disconnectGitHub,
   fetchGitHubRepositories,
   fetchGitHubStatus,
   fetchHermesCatalog,
@@ -492,7 +493,22 @@ function App(): JSX.Element {
 
   function startGitHubLogin(): void {
     const returnTo = `${window.location.pathname}${window.location.search}`;
-    window.location.assign(`/api/github/oauth/start?returnTo=${encodeURIComponent(returnTo)}`);
+    window.location.assign(`/api/github/oauth/login?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  async function handleDisconnectGitHub(): Promise<void> {
+    setGithubBusy(true);
+    setGithubMessage("GitHub 연결을 해제하는 중입니다.");
+    try {
+      const status = await disconnectGitHub();
+      setGithubStatus(status);
+      setGithubRepositoryGroups([]);
+      setGithubMessage("GitHub 연결을 해제했습니다.");
+    } catch (cause) {
+      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGithubBusy(false);
+    }
   }
 
   async function handleCloneGitHubProject(repositoryFullName: string): Promise<void> {
@@ -2029,15 +2045,31 @@ function App(): JSX.Element {
                       <Github size={18} />
                       <strong>{githubConnected ? `${githubStatus?.login || "GitHub"} 연결됨` : "GitHub 로그인이 필요합니다"}</strong>
                     </div>
-                    <button
-                      className="aliasActionButton primary"
-                      type="button"
-                      disabled={githubBusy || !githubStatus?.oauthConfigured}
-                      onClick={startGitHubLogin}
-                    >
-                      <Github size={15} />
-                      {githubConnected ? "다른 계정 로그인" : "GitHub 로그인"}
-                    </button>
+                    <div className="githubAuthActions">
+                      {githubConnected ? (
+                        <button
+                          className="aliasActionButton secondary"
+                          type="button"
+                          disabled={githubBusy}
+                          onClick={() => {
+                            handleDisconnectGitHub().catch((cause: unknown) => {
+                              setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                            });
+                          }}
+                        >
+                          연결 해제
+                        </button>
+                      ) : null}
+                      <button
+                        className="aliasActionButton primary"
+                        type="button"
+                        disabled={githubBusy || !githubStatus?.oauthConfigured}
+                        onClick={startGitHubLogin}
+                      >
+                        <Github size={15} />
+                        {githubConnected ? "다른 계정 로그인" : "GitHub 로그인"}
+                      </button>
+                    </div>
                   </section>
 
                   <p className="projectDrawerMessage">{githubBusy ? "GitHub 작업 처리 중..." : githubMessage}</p>

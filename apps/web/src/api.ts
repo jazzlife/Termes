@@ -77,6 +77,19 @@ export async function fetchGitHubRepositories(query?: string): Promise<GitHubRep
   return data.groups;
 }
 
+export async function disconnectGitHub(): Promise<GitHubConnectionSummary> {
+  const response = await fetch("/api/github/oauth/logout", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to disconnect GitHub: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { github: GitHubConnectionSummary };
+  return data.github;
+}
+
 export async function cloneGitHubProject(input: {
   repositoryFullName: string;
   parentPath?: string;

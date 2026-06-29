@@ -489,6 +489,13 @@ svg {
   white-space: nowrap;
 }
 
+.githubAuthActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .projectDrawerMessage {
   padding: 10px 12px;
   border: 1px solid rgba(216, 199, 120, 0.18);

@@ -15,6 +15,7 @@ import type {
   TaskSummary,
 } from "@termes/shared";
 import { TERMES_VERSION, assertTaskStatus } from "@termes/shared";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import Fastify from "fastify";
 import Redis from "ioredis";
 import { execFile } from "node:child_process";
@@ -215,6 +216,14 @@ async function writeGithubConnection(record: GitHubConnectionRecord): Promise<vo
   await mkdir(githubSecretsRootPath, { recursive: true });
   await writeFile(githubConnectionFilePath, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
   await chmod(githubConnectionFilePath, 0o600);
+}
+
+async function clearGithubConnection(): Promise<"cleared" | "env-token"> {
+  if (process.env.GITHUB_TOKEN?.trim()) {
+    return "env-token";
+  }
+  await rm(githubConnectionFilePath, { force: true });
+  return "cleared";
 }
 
 function githubConnectionSummary(record: GitHubConnectionRecord | null) {
@@ -693,28 +702,30 @@ async function main(): Promise<void> {
     return { github: githubConnectionSummary(await readGithubConnection()) };
   });
 
-  app.get("/api/github/oauth/start", async (request, reply) => {
-    if (!githubOAuthConfigured()) {
-      return reply.code(503).send({ error: "GitHub OAuth is not configured" });
-    }
+  for (const oauthStartPath of ["/api/github/oauth/start", "/api/github/oauth/login"]) {
+    app.get(oauthStartPath, async (request, reply) => {
+      if (!githubOAuthConfigured()) {
+        return reply.code(503).send({ error: "GitHub OAuth is not configured" });
+      }
 
-    const query = z.object({ returnTo: z.string().optional() }).parse(request.query);
-    const state = randomBytes(24).toString("hex");
-    await redis.set(
-      `github.oauth.state.${state}`,
-      JSON.stringify({ returnTo: safeReturnTo(query.returnTo) }),
-      "EX",
-      600,
-    );
+      const query = z.object({ returnTo: z.string().optional() }).parse(request.query);
+      const state = randomBytes(24).toString("hex");
+      await redis.set(
+        `github.oauth.state.${state}`,
+        JSON.stringify({ returnTo: safeReturnTo(query.returnTo) }),
+        "EX",
+        600,
+      );
 
-    const oauthUrl = new URL("https://github.com/login/oauth/authorize");
-    oauthUrl.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID?.trim() || "");
-    oauthUrl.searchParams.set("redirect_uri", `${buildExternalBaseUrl(request)}/api/github/oauth/callback`);
-    oauthUrl.searchParams.set("state", state);
-    oauthUrl.searchParams.set("scope", "repo read:org");
+      const oauthUrl = new URL("https://github.com/login/oauth/authorize");
+      oauthUrl.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID?.trim() || "");
+      oauthUrl.searchParams.set("redirect_uri", `${buildExternalBaseUrl(request)}/api/github/oauth/callback`);
+      oauthUrl.searchParams.set("state", state);
+      oauthUrl.searchParams.set("scope", "repo read:org");
 
-    return reply.header("location", oauthUrl.toString()).code(302).send();
-  });
+      return reply.header("location", oauthUrl.toString()).code(302).send();
+    });
+  }
 
   app.get("/api/github/oauth/callback", async (request, reply) => {
     if (!githubOAuthConfigured()) {
@@ -775,6 +786,14 @@ async function main(): Promise<void> {
     }
 
     return reply.header("location", redirectUrl.toString()).code(302).send();
+  });
+
+  app.post("/api/github/oauth/logout", async (_request, reply) => {
+    const result = await clearGithubConnection();
+    if (result === "env-token") {
+      return reply.code(409).send({ error: "GitHub is connected by GITHUB_TOKEN; remove the server environment variable to disconnect." });
+    }
+    return { github: githubConnectionSummary(await readGithubConnection()) };
   });
 
   app.get("/api/github/repositories", async (request, reply) => {
@@ -934,7 +953,7 @@ async function main(): Promise<void> {
     return reply.code(201).send({ project });
   });
 
-  app.post("/api/projects/github-clone", async (request, reply) => {
+  async function handleGitHubProjectClone(request: FastifyRequest, reply: FastifyReply) {
     const input = githubCloneInputSchema.parse(request.body);
     const connection = await readGithubConnection();
     if (!connection) {
@@ -1010,7 +1029,10 @@ async function main(): Promise<void> {
       repositoryFullName: input.repositoryFullName,
       workspacePath: targetAbsolutePath,
     });
-  });
+  }
+
+  app.post("/api/projects/github-clone", handleGitHubProjectClone);
+  app.post("/api/projects/clone", handleGitHubProjectClone);
 
   app.patch("/api/projects/:projectId", async (request, reply) => {
     const params = z.object({ projectId: z.string().uuid() }).parse(request.params);
