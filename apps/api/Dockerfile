@@ -18,6 +18,7 @@ FROM node:22-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apk add --no-cache git
 
 COPY --from=build /app/apps/api/dist apps/api/dist
 COPY infra/db/migrations infra/db/migrations
