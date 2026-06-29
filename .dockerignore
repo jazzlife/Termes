@@ -1,0 +1,15 @@
+.DS_Store
+.git
+.env
+.env.*
+!.env.example
+node_modules
+dist
+build
+.next
+coverage
+output
+.playwright-cli
+secrets
+*.plaintext
+*.decrypted

@@ -1,0 +1,23 @@
+.env
+.env.*
+!.env.example
+infra/compose/.env
+
+.secrets/
+secrets/*.enc.json
+secrets/*.json
+!secrets/README.md
+*.key
+*.plaintext
+*.decrypted
+
+node_modules/
+dist/
+build/
+.next/
+coverage/
+output/
+.playwright-cli/
+
+.DS_Store
+mobile alias

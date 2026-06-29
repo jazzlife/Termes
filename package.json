@@ -1,0 +1,21 @@
+{
+  "name": "termes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Termes AI development platform",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:hermes": "node scripts/hermes-smoke.mjs",
+    "test:hermes:official": "node scripts/hermes-smoke.mjs --require-upstream",
+    "doctor:hermes:upstream": "sh scripts/hermes-upstream-doctor.sh",
+    "compose:config": "docker compose -f infra/compose/docker-compose.yml config"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "esbuild": "^0.25.5",
+    "typescript": "^5.8.3"
+  }
+}
