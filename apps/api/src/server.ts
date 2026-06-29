@@ -190,6 +190,14 @@ function buildExternalBaseUrl(request: { headers: Record<string, unknown> }): st
   return `${proto}://${host}`;
 }
 
+function githubOAuthCallbackUrl(request: { headers: Record<string, unknown> }): string {
+  const configured = process.env.GITHUB_OAUTH_CALLBACK_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+  return `${buildExternalBaseUrl(request)}/api/github/oauth/callback`;
+}
+
 function githubOAuthConfigured(): boolean {
   return Boolean(process.env.GITHUB_CLIENT_ID?.trim() && githubClientSecret());
 }
@@ -754,7 +762,7 @@ async function main(): Promise<void> {
 
       const oauthUrl = new URL("https://github.com/login/oauth/authorize");
       oauthUrl.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID?.trim() || "");
-      oauthUrl.searchParams.set("redirect_uri", `${buildExternalBaseUrl(request)}/api/github/oauth/callback`);
+      oauthUrl.searchParams.set("redirect_uri", githubOAuthCallbackUrl(request));
       oauthUrl.searchParams.set("state", state);
       oauthUrl.searchParams.set("scope", "repo read:org");
 
@@ -793,7 +801,7 @@ async function main(): Promise<void> {
           client_id: process.env.GITHUB_CLIENT_ID?.trim() || "",
           client_secret: githubClientSecret(),
           code: query.code,
-          redirect_uri: `${buildExternalBaseUrl(request)}/api/github/oauth/callback`,
+          redirect_uri: githubOAuthCallbackUrl(request),
         }),
       });
       const tokenPayload = (await tokenResponse.json()) as { access_token?: string; error?: string; error_description?: string };
