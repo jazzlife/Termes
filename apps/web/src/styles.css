@@ -308,26 +308,123 @@ svg {
   opacity: 0.48;
 }
 
-.projectCreatePanel {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.4fr) auto auto;
-  gap: 8px;
-  padding: 0 16px 12px;
+.projectDrawerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border: 0;
+  background: rgba(2, 6, 23, 0.68);
+  backdrop-filter: blur(18px);
 }
 
-.projectCreatePanel input {
-  min-width: 0;
-  height: 36px;
-  padding: 0 10px;
+.projectDrawer {
+  display: flex;
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 40px);
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  padding: 18px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  outline: 0;
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  border-radius: 18px;
+  background: #0f172a;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
 }
 
-.projectCreatePanel input::placeholder {
+.projectDrawerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.projectDrawerHeader h2 {
+  margin-top: 4px;
+  color: #ffffff;
+  font-size: 19px;
+  line-height: 1.25;
+}
+
+.projectDrawerWorkspace {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid rgba(216, 199, 120, 0.22);
+  border-radius: 10px;
+  background: rgba(216, 199, 120, 0.08);
+  color: #d8c778;
+}
+
+.projectDrawerWorkspace p {
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.projectDrawerWorkspace span {
+  display: block;
+  min-width: 0;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #cbd5e1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.projectDrawerField {
+  display: grid;
+  gap: 7px;
+}
+
+.projectDrawerField span {
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.projectDrawerField input,
+.projectDrawerField textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  font: inherit;
+}
+
+.projectDrawerField input {
+  height: 40px;
+}
+
+.projectDrawerField textarea {
+  resize: vertical;
+}
+
+.projectDrawerField input:focus,
+.projectDrawerField textarea:focus {
+  border-color: rgba(216, 199, 120, 0.72);
+  box-shadow: 0 0 0 3px rgba(216, 199, 120, 0.12);
+}
+
+.projectDrawerField input::placeholder,
+.projectDrawerField textarea::placeholder {
   color: #64748b;
+}
+
+.projectDrawerActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .mobileNotice {
@@ -969,14 +1066,22 @@ svg {
     padding-left: 14px;
   }
 
-  .projectCreatePanel {
-    grid-template-columns: 1fr auto;
-    padding-right: 14px;
-    padding-left: 14px;
+  .projectDrawerBackdrop {
+    align-items: flex-end;
+    padding: 0;
   }
 
-  .projectCreatePanel input {
-    grid-column: span 2;
+  .projectDrawer {
+    width: 100%;
+    max-height: calc(100dvh - 42px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .projectDrawerActions {
+    grid-template-columns: 1fr;
   }
 
   .aliasListFooter {

@@ -81,6 +81,8 @@ services:
       MIGRATIONS_DIR: /app/infra/db/migrations
     ports:
       - "${TERMES_API_BIND}:${TERMES_API_PORT}:8080"
+    volumes:
+      - /data/docker_data/termes/workspaces:/data/docker_data/termes/workspaces
     depends_on:
       migrate:
         condition: service_completed_successfully

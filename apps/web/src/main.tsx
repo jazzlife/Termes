@@ -7,6 +7,8 @@ import {
   Command,
   FileCode2,
   Files,
+  FolderOpen,
+  FolderPlus,
   GitBranch,
   History,
   Loader2,
@@ -169,6 +171,10 @@ function projectKeyFromName(value: string): string {
   return key.length >= 2 ? key : `project-${Date.now().toString(36)}`;
 }
 
+function defaultProjectWorkspacePath(projectKey: string): string {
+  return `/data/docker_data/termes/workspaces/projects/${projectKey}`;
+}
+
 function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
   const record = window as unknown as {
     SpeechRecognition?: SpeechRecognitionConstructor;
@@ -294,6 +300,7 @@ function App(): JSX.Element {
   const [projectPanelOpen, setProjectPanelOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
+  const [projectWorkspacePath, setProjectWorkspacePath] = useState("");
   const [hermesPrompt, setHermesPrompt] = useState("Inspect Termes runtime and report status.");
   const [lastHermesResponseId, setLastHermesResponseId] = useState<string | null>(null);
   const [lastHermesProfileName, setLastHermesProfileName] = useState<string | null>(null);
@@ -359,6 +366,8 @@ function App(): JSX.Element {
     ? `upstream=${upstreamStatus} runner=${runnerConfigured ? "enabled" : "disabled"}`
     : "Runtime checking";
   const currentHermesRunId = latestSession?.hermesRunId || hermesRun?.run_id || "";
+  const draftProjectKey = projectKeyFromName(projectName || "new-project");
+  const suggestedProjectWorkspacePath = defaultProjectWorkspacePath(draftProjectKey);
 
   async function refresh(projectId = selectedProject?.id, taskId = selectedTask?.id): Promise<void> {
     const nextProjects = await fetchProjects();
@@ -538,14 +547,18 @@ function App(): JSX.Element {
       return;
     }
     const description = projectDescription.trim();
+    const key = projectKeyFromName(name);
+    const workspacePath = projectWorkspacePath.trim() || defaultProjectWorkspacePath(key);
 
     const project = await createProject({
-      key: projectKeyFromName(name),
+      key,
       name,
+      workspacePath,
       ...(description ? { description } : {}),
     });
     setProjectName("");
     setProjectDescription("");
+    setProjectWorkspacePath("");
     setProjectPanelOpen(false);
     await refresh(project.id);
   }
@@ -1732,7 +1745,7 @@ function App(): JSX.Element {
               className={project.id === selectedProject?.id ? "project-chip-button active" : "project-chip-button"}
               key={project.id}
               type="button"
-              title={project.name}
+              title={project.workspacePath ? `${project.name} · ${project.workspacePath}` : project.name}
               onClick={() => {
                 setSelectedProjectId(project.id);
                 refresh(project.id).catch((cause: unknown) => {
@@ -1746,11 +1759,12 @@ function App(): JSX.Element {
           <button
             className={projectPanelOpen ? "project-chip-button active" : "project-chip-button"}
             type="button"
-            title="프로젝트 생성"
-            onClick={() => setProjectPanelOpen((current) => !current)}
+            title="프로젝트 등록"
+            data-testid="open-project-drawer"
+            onClick={() => setProjectPanelOpen(true)}
           >
-            <Plus size={14} />
-            Project
+            <FolderPlus size={14} />
+            프로젝트 등록
           </button>
           <button
             className="project-chip-button iconOnly"
@@ -1782,32 +1796,80 @@ function App(): JSX.Element {
 
         {projectPanelOpen ? (
           <form
-            className="projectCreatePanel"
+            className="projectDrawerBackdrop"
             onSubmit={(event) => {
               event.preventDefault();
               handleCreateProject().catch((cause: unknown) => {
                 setError(cause instanceof Error ? cause.message : String(cause));
               });
             }}
+            onClick={() => setProjectPanelOpen(false)}
           >
-            <input
-              value={projectName}
-              onChange={(event) => setProjectName(event.target.value)}
-              placeholder="프로젝트 이름"
-              required
-            />
-            <input
-              value={projectDescription}
-              onChange={(event) => setProjectDescription(event.target.value)}
-              placeholder="설명"
-            />
-            <button className="aliasActionButton primary" type="submit">
-              <Plus size={15} />
-              생성
-            </button>
-            <button className="aliasIconButton" type="button" onClick={() => setProjectPanelOpen(false)}>
-              <X size={16} />
-            </button>
+            <section
+              className="projectDrawer"
+              aria-label="새 프로젝트 등록"
+              data-testid="project-drawer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="projectDrawerHeader">
+                <div>
+                  <span className="sectionLabel">Folder Workspace</span>
+                  <h2>새 프로젝트 등록</h2>
+                </div>
+                <button className="aliasIconButton" type="button" title="닫기" onClick={() => setProjectPanelOpen(false)}>
+                  <X size={17} />
+                </button>
+              </header>
+
+              <div className="projectDrawerWorkspace">
+                <FolderOpen size={18} />
+                <div>
+                  <p>생성될 폴더 워크스페이스</p>
+                  <span>{projectWorkspacePath.trim() || suggestedProjectWorkspacePath}</span>
+                </div>
+              </div>
+
+              <label className="projectDrawerField">
+                <span>프로젝트 이름</span>
+                <input
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                  placeholder="예: termes web agent"
+                  required
+                  data-testid="project-name-input"
+                />
+              </label>
+
+              <label className="projectDrawerField">
+                <span>워크스페이스 경로</span>
+                <input
+                  value={projectWorkspacePath}
+                  onChange={(event) => setProjectWorkspacePath(event.target.value)}
+                  placeholder={suggestedProjectWorkspacePath}
+                  data-testid="project-workspace-input"
+                />
+              </label>
+
+              <label className="projectDrawerField">
+                <span>프로젝트 설명</span>
+                <textarea
+                  value={projectDescription}
+                  onChange={(event) => setProjectDescription(event.target.value)}
+                  placeholder="프로젝트 목적과 작업 범위를 입력해 주세요."
+                  rows={4}
+                />
+              </label>
+
+              <div className="projectDrawerActions">
+                <button className="aliasActionButton secondary" type="button" onClick={() => setProjectPanelOpen(false)}>
+                  취소
+                </button>
+                <button className="aliasActionButton primary" type="submit" data-testid="submit-project">
+                  <FolderPlus size={15} />
+                  프로젝트 등록
+                </button>
+              </div>
+            </section>
           </form>
         ) : null}
       </div>

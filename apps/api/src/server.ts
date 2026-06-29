@@ -17,6 +17,8 @@ import type {
 import { TERMES_VERSION, assertTaskStatus } from "@termes/shared";
 import Fastify from "fastify";
 import Redis from "ioredis";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import { loadConfig } from "./config";
 import { assertDbReady, createDb, type Db } from "./db";
@@ -31,6 +33,7 @@ const projectInputSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000).optional(),
+  workspacePath: z.string().trim().max(512).optional(),
 });
 
 const projectPatchSchema = z
@@ -63,11 +66,27 @@ const chatMessageInputSchema = z.object({
   content: z.string().trim().min(1).max(20000),
 });
 
+const workspaceRootPath = path.resolve(process.env.WORKSPACE_ROOT || "/data/docker_data/termes/workspaces");
+
+function resolveProjectWorkspacePath(projectKey: string, requestedPath?: string): string {
+  const rawPath = requestedPath?.trim();
+  const candidate = rawPath
+    ? path.resolve(path.isAbsolute(rawPath) ? rawPath : path.join(workspaceRootPath, rawPath))
+    : path.resolve(workspaceRootPath, "projects", projectKey);
+
+  if (candidate !== workspaceRootPath && !candidate.startsWith(`${workspaceRootPath}${path.sep}`)) {
+    throw new Error(`Workspace path must be under ${workspaceRootPath}`);
+  }
+
+  return candidate;
+}
+
 function mapProject(row: {
   id: string;
   key: string;
   name: string;
   description: string | null;
+  workspace_path: string | null;
   created_at: Date;
   updated_at: Date;
 }): ProjectSummary {
@@ -76,6 +95,7 @@ function mapProject(row: {
     key: row.key,
     name: row.name,
     description: row.description,
+    workspacePath: row.workspace_path,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at?.toISOString(),
   };
@@ -467,13 +487,28 @@ async function main(): Promise<void> {
       key: string;
       name: string;
       description: string | null;
+      workspace_path: string | null;
       created_at: Date;
       updated_at: Date;
     }>(
       `
-        select id, key, name, description, created_at, updated_at
-        from projects
-        order by created_at asc
+        select
+          p.id,
+          p.key,
+          p.name,
+          p.description,
+          wr.host_path as workspace_path,
+          p.created_at,
+          p.updated_at
+        from projects p
+        left join lateral (
+          select host_path
+          from workspace_roots
+          where project_id = p.id
+          order by created_at asc
+          limit 1
+        ) wr on true
+        order by p.created_at asc
       `,
     );
 
@@ -482,25 +517,65 @@ async function main(): Promise<void> {
 
   app.post("/api/projects", async (request, reply) => {
     const input = projectInputSchema.parse(request.body);
-    const result = await db.pool.query<{
-      id: string;
-      key: string;
-      name: string;
-      description: string | null;
-      created_at: Date;
-      updated_at: Date;
-    }>(
-      `
-        insert into projects (key, name, description)
-        values ($1, $2, $3)
-        returning id, key, name, description, created_at, updated_at
-      `,
-      [input.key, input.name, input.description ?? null],
-    );
 
-    const row = result.rows[0];
-    if (!row) {
-      throw new Error("Project insert did not return a row");
+    let workspacePath: string;
+    try {
+      workspacePath = resolveProjectWorkspacePath(input.key, input.workspacePath);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : "Invalid workspace path" });
+    }
+
+    const client = await db.pool.connect();
+    let row:
+      | {
+          id: string;
+          key: string;
+          name: string;
+          description: string | null;
+          workspace_path: string | null;
+          created_at: Date;
+          updated_at: Date;
+        }
+      | undefined;
+
+    try {
+      await client.query("begin");
+      const result = await client.query<{
+        id: string;
+        key: string;
+        name: string;
+        description: string | null;
+        workspace_path: string | null;
+        created_at: Date;
+        updated_at: Date;
+      }>(
+        `
+          insert into projects (key, name, description)
+          values ($1, $2, $3)
+          returning id, key, name, description, $4::text as workspace_path, created_at, updated_at
+        `,
+        [input.key, input.name, input.description ?? null, workspacePath],
+      );
+
+      row = result.rows[0];
+      if (!row) {
+        throw new Error("Project insert did not return a row");
+      }
+
+      await mkdir(workspacePath, { recursive: true });
+      await client.query(
+        `
+          insert into workspace_roots (project_id, host_path)
+          values ($1, $2)
+        `,
+        [row.id, workspacePath],
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
     }
 
     const project = mapProject(row);
@@ -524,17 +599,36 @@ async function main(): Promise<void> {
       key: string;
       name: string;
       description: string | null;
+      workspace_path: string | null;
       created_at: Date;
       updated_at: Date;
     }>(
       `
-        update projects
-        set
-          name = coalesce($2, name),
-          description = case when $3::boolean then $4 else description end,
-          updated_at = now()
-        where id = $1
-        returning id, key, name, description, created_at, updated_at
+        with updated as (
+          update projects
+          set
+            name = coalesce($2, name),
+            description = case when $3::boolean then $4 else description end,
+            updated_at = now()
+          where id = $1
+          returning id, key, name, description, created_at, updated_at
+        )
+        select
+          updated.id,
+          updated.key,
+          updated.name,
+          updated.description,
+          wr.host_path as workspace_path,
+          updated.created_at,
+          updated.updated_at
+        from updated
+        left join lateral (
+          select host_path
+          from workspace_roots
+          where project_id = updated.id
+          order by created_at asc
+          limit 1
+        ) wr on true
       `,
       [params.projectId, input.name ?? null, input.description !== undefined, input.description ?? null],
     );

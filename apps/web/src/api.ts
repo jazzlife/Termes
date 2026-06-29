@@ -32,6 +32,7 @@ export async function createProject(input: {
   key: string;
   name: string;
   description?: string;
+  workspacePath?: string;
 }): Promise<ProjectSummary> {
   const response = await fetch("/api/projects", {
     method: "POST",
