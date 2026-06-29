@@ -20,7 +20,7 @@ import Fastify from "fastify";
 import Redis from "ioredis";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -77,6 +77,16 @@ const githubCloneInputSchema = z.object({
     .trim()
     .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
   parentPath: z.string().trim().max(240).optional(),
+});
+
+const projectFolderCreateInputSchema = z.object({
+  parentPath: z.string().trim().max(240).optional(),
+  name: z.string().trim().min(1).max(120),
+});
+
+const projectFolderRegisterInputSchema = z.object({
+  path: z.string().trim().min(1).max(240),
+  name: z.string().trim().min(1).max(120).optional(),
 });
 
 const workspaceRootPath = path.resolve(process.env.WORKSPACE_ROOT || "/data/docker_data/termes/workspaces");
@@ -951,6 +961,88 @@ async function main(): Promise<void> {
     });
 
     return reply.code(201).send({ project });
+  });
+
+  app.post("/api/projects/folder/create", async (request, reply) => {
+    const input = projectFolderCreateInputSchema.parse(request.body);
+    const parentPath = normalizeRelativeWorkspacePath(input.parentPath);
+    const folderName = normalizeRelativeWorkspacePath(input.name);
+    if (!folderName) {
+      return reply.code(400).send({ error: "Folder name is required" });
+    }
+
+    const folderRelativePath = normalizeRelativeWorkspacePath(path.posix.join(parentPath, folderName));
+    const folderAbsolutePath = resolveProjectSandboxPath(folderRelativePath);
+    await mkdir(folderAbsolutePath, { recursive: true });
+
+    return reply.code(201).send({
+      workspaceId: "termes",
+      name: folderRelativePath.split("/").filter(Boolean).at(-1) || folderRelativePath,
+      path: folderRelativePath,
+      absolutePath: folderAbsolutePath,
+    });
+  });
+
+  app.post("/api/projects/folder", async (request, reply) => {
+    const input = projectFolderRegisterInputSchema.parse(request.body);
+    const folderRelativePath = normalizeRelativeWorkspacePath(input.path);
+    const folderAbsolutePath = resolveProjectSandboxPath(folderRelativePath);
+    const folderStat = await stat(folderAbsolutePath).catch(() => null);
+    if (!folderStat?.isDirectory()) {
+      return reply.code(400).send({ error: "Project folder does not exist under the workspace projects root" });
+    }
+
+    const projectName = input.name?.trim() || folderRelativePath.split("/").filter(Boolean).at(-1) || "Project";
+    const key = await uniqueProjectKey(db, projectName);
+    const client = await db.pool.connect();
+    let row: ProjectRow | undefined;
+    try {
+      await client.query("begin");
+      const result = await client.query<ProjectRow>(
+        `
+          insert into projects (key, name, description)
+          values ($1, $2, $3)
+          returning id, key, name, description, $4::text as workspace_path, created_at, updated_at
+        `,
+        [key, projectName, `Folder project: ${folderRelativePath}`, folderAbsolutePath],
+      );
+      row = result.rows[0];
+      if (!row) {
+        throw new Error("Project insert did not return a row");
+      }
+      await client.query(
+        `
+          insert into workspace_roots (project_id, host_path)
+          values ($1, $2)
+        `,
+        [row.id, folderAbsolutePath],
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const project = mapProject(row);
+    await appendEvent(db.pool, redis, {
+      projectId: row.id,
+      type: "project.created",
+      payload: {
+        key: row.key,
+        name: row.name,
+        source: "folder",
+        path: folderRelativePath,
+      },
+    });
+
+    return reply.code(201).send({
+      workspaceId: "termes",
+      project,
+      path: folderRelativePath,
+      workspacePath: folderAbsolutePath,
+    });
   });
 
   async function handleGitHubProjectClone(request: FastifyRequest, reply: FastifyReply) {

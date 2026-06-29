@@ -61,6 +61,7 @@ import {
   createHermesRun,
   createHermesSession,
   createProject,
+  createProjectFolder,
   createTask,
   deleteProject,
   deleteHermesJob,
@@ -315,6 +316,7 @@ function App(): JSX.Element {
   const [githubSearch, setGithubSearch] = useState("");
   const [githubManualRepository, setGithubManualRepository] = useState("");
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
+  const [githubNewFolderName, setGithubNewFolderName] = useState("");
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubMessage, setGithubMessage] = useState("GitHub 로그인 후 저장소를 clone해서 프로젝트로 등록할 수 있습니다.");
   const [hermesPrompt, setHermesPrompt] = useState("Inspect Termes runtime and report status.");
@@ -504,6 +506,30 @@ function App(): JSX.Element {
       setGithubStatus(status);
       setGithubRepositoryGroups([]);
       setGithubMessage("GitHub 연결을 해제했습니다.");
+    } catch (cause) {
+      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGithubBusy(false);
+    }
+  }
+
+  async function handleCreateGitHubProjectFolder(): Promise<void> {
+    const name = githubNewFolderName.trim();
+    if (!name) {
+      setGithubMessage("생성할 폴더 이름을 입력해 주세요.");
+      return;
+    }
+
+    setGithubBusy(true);
+    setGithubMessage("clone 상위 폴더를 생성하는 중입니다.");
+    try {
+      const created = await createProjectFolder({
+        ...(githubCloneParentPath.trim() ? { parentPath: githubCloneParentPath.trim() } : {}),
+        name,
+      });
+      setGithubCloneParentPath(created.path);
+      setGithubNewFolderName("");
+      setGithubMessage(`${created.path} 폴더를 생성했습니다.`);
     } catch (cause) {
       setGithubMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -2082,6 +2108,30 @@ function App(): JSX.Element {
                       placeholder="비워두면 /projects/<repo>에 생성됩니다"
                       data-testid="github-clone-parent-input"
                     />
+                  </label>
+
+                  <label className="projectDrawerField">
+                    <span>새 폴더 생성</span>
+                    <div className="githubManualRow">
+                      <input
+                        value={githubNewFolderName}
+                        onChange={(event) => setGithubNewFolderName(event.target.value)}
+                        placeholder="예: clients/new-project"
+                        data-testid="github-new-folder-input"
+                      />
+                      <button
+                        className="aliasActionButton secondary"
+                        type="button"
+                        disabled={githubBusy || !githubNewFolderName.trim()}
+                        onClick={() => {
+                          handleCreateGitHubProjectFolder().catch((cause: unknown) => {
+                            setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                          });
+                        }}
+                      >
+                        생성
+                      </button>
+                    </div>
                   </label>
 
                   <label className="projectDrawerField">

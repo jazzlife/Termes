@@ -90,6 +90,25 @@ export async function disconnectGitHub(): Promise<GitHubConnectionSummary> {
   return data.github;
 }
 
+export async function createProjectFolder(input: {
+  parentPath?: string;
+  name: string;
+}): Promise<{ workspaceId: string; name: string; path: string; absolutePath: string }> {
+  const response = await fetch("/api/projects/folder/create", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to create project folder: ${response.status}`);
+  }
+
+  return (await response.json()) as { workspaceId: string; name: string; path: string; absolutePath: string };
+}
+
 export async function cloneGitHubProject(input: {
   repositoryFullName: string;
   parentPath?: string;
