@@ -59,6 +59,38 @@ export interface ProjectSummary {
   updatedAt: string;
 }
 
+export interface GitHubConnectionSummary {
+  connected: boolean;
+  login: string | null;
+  avatarUrl: string | null;
+  profileUrl: string | null;
+  linkedAt: string | null;
+  oauthConfigured: boolean;
+}
+
+export interface GitHubRepositorySummary {
+  owner: string;
+  name: string;
+  fullName: string;
+  visibility: "public" | "private" | "internal";
+  defaultBranch: string;
+}
+
+export interface GitHubRepositoryGroupSummary {
+  groupId: string;
+  label: string;
+  owner: string;
+  scope: "personal" | "group";
+  repositories: GitHubRepositorySummary[];
+  error?: string;
+}
+
+export interface GitHubCloneProjectSummary {
+  project: ProjectSummary;
+  repositoryFullName: string;
+  workspacePath: string;
+}
+
 export interface TaskSummary {
   id: string;
   projectId: string;

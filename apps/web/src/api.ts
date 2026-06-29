@@ -1,4 +1,7 @@
 import type {
+  GitHubCloneProjectSummary,
+  GitHubConnectionSummary,
+  GitHubRepositoryGroupSummary,
   HermesCatalogSummary,
   HermesCapabilitySummary,
   HermesListResponse,
@@ -48,6 +51,50 @@ export async function createProject(input: {
 
   const data = (await response.json()) as { project: ProjectSummary };
   return data.project;
+}
+
+export async function fetchGitHubStatus(): Promise<GitHubConnectionSummary> {
+  const response = await fetch("/api/github/status");
+  if (!response.ok) {
+    throw new Error(`Failed to fetch GitHub status: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { github: GitHubConnectionSummary };
+  return data.github;
+}
+
+export async function fetchGitHubRepositories(query?: string): Promise<GitHubRepositoryGroupSummary[]> {
+  const params = new URLSearchParams();
+  if (query?.trim()) {
+    params.set("q", query.trim());
+  }
+  const response = await fetch(`/api/github/repositories${params.size > 0 ? `?${params}` : ""}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch GitHub repositories: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { groups: GitHubRepositoryGroupSummary[] };
+  return data.groups;
+}
+
+export async function cloneGitHubProject(input: {
+  repositoryFullName: string;
+  parentPath?: string;
+}): Promise<GitHubCloneProjectSummary> {
+  const response = await fetch("/api/projects/github-clone", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to clone GitHub project: ${response.status}`);
+  }
+
+  return (await response.json()) as GitHubCloneProjectSummary;
 }
 
 export async function updateProject(

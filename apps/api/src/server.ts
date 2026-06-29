@@ -17,8 +17,12 @@ import type {
 import { TERMES_VERSION, assertTaskStatus } from "@termes/shared";
 import Fastify from "fastify";
 import Redis from "ioredis";
-import { mkdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { z } from "zod";
 import { loadConfig } from "./config";
 import { assertDbReady, createDb, type Db } from "./db";
@@ -66,7 +70,54 @@ const chatMessageInputSchema = z.object({
   content: z.string().trim().min(1).max(20000),
 });
 
+const githubCloneInputSchema = z.object({
+  repositoryFullName: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  parentPath: z.string().trim().max(240).optional(),
+});
+
 const workspaceRootPath = path.resolve(process.env.WORKSPACE_ROOT || "/data/docker_data/termes/workspaces");
+const workspaceProjectsRootPath = path.join(workspaceRootPath, "projects");
+const githubSecretsRootPath = path.resolve(process.env.GITHUB_SECRETS_ROOT || "/data/docker_data/termes/secrets");
+const githubConnectionFilePath = path.join(githubSecretsRootPath, "github-connection.json");
+const execFileAsync = promisify(execFile);
+
+type ProjectRow = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  workspace_path: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type GitHubConnectionRecord = {
+  accessToken: string;
+  login: string | null;
+  avatarUrl: string | null;
+  profileUrl: string | null;
+  linkedAt: string | null;
+};
+
+type GitHubApiUser = {
+  login?: string;
+  avatar_url?: string;
+  html_url?: string;
+};
+
+type GitHubApiRepository = {
+  name?: string;
+  full_name?: string;
+  private?: boolean;
+  visibility?: "public" | "private" | "internal";
+  default_branch?: string;
+  owner?: {
+    login?: string;
+  };
+};
 
 function resolveProjectWorkspacePath(projectKey: string, requestedPath?: string): string {
   const rawPath = requestedPath?.trim();
@@ -79,6 +130,163 @@ function resolveProjectWorkspacePath(projectKey: string, requestedPath?: string)
   }
 
   return candidate;
+}
+
+function slugifyProjectKey(value: string): string {
+  const key = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 36);
+  return key.length >= 2 ? key : `project-${Date.now().toString(36)}`;
+}
+
+function normalizeRelativeWorkspacePath(value?: string): string {
+  const normalized = (value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("Workspace path traversal is not allowed");
+  }
+  return segments.join("/");
+}
+
+function resolveProjectSandboxPath(relativePath: string): string {
+  const normalized = normalizeRelativeWorkspacePath(relativePath);
+  const candidate = path.resolve(workspaceProjectsRootPath, normalized);
+  if (candidate !== workspaceProjectsRootPath && !candidate.startsWith(`${workspaceProjectsRootPath}${path.sep}`)) {
+    throw new Error(`Workspace path must be under ${workspaceProjectsRootPath}`);
+  }
+  return candidate;
+}
+
+function safeReturnTo(value: unknown): string {
+  const candidate = typeof value === "string" ? value : "/";
+  return candidate.startsWith("/") && !candidate.startsWith("//") ? candidate : "/";
+}
+
+function buildExternalBaseUrl(request: { headers: Record<string, unknown> }): string {
+  const configured = process.env.PUBLIC_BASE_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/g, "");
+  }
+  const host = String(request.headers.host || "127.0.0.1:8080");
+  const forwardedProto = request.headers["x-forwarded-proto"];
+  const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)?.split(",")[0]?.trim() || "http";
+  return `${proto}://${host}`;
+}
+
+function githubOAuthConfigured(): boolean {
+  return Boolean(process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim());
+}
+
+async function readGithubConnection(): Promise<GitHubConnectionRecord | null> {
+  const envToken = process.env.GITHUB_TOKEN?.trim();
+  if (envToken) {
+    return {
+      accessToken: envToken,
+      login: process.env.GITHUB_LOGIN?.trim() || null,
+      avatarUrl: null,
+      profileUrl: null,
+      linkedAt: null,
+    };
+  }
+
+  try {
+    const raw = JSON.parse(await readFile(githubConnectionFilePath, "utf8")) as Partial<GitHubConnectionRecord>;
+    if (!raw.accessToken || typeof raw.accessToken !== "string") {
+      return null;
+    }
+    return {
+      accessToken: raw.accessToken,
+      login: typeof raw.login === "string" ? raw.login : null,
+      avatarUrl: typeof raw.avatarUrl === "string" ? raw.avatarUrl : null,
+      profileUrl: typeof raw.profileUrl === "string" ? raw.profileUrl : null,
+      linkedAt: typeof raw.linkedAt === "string" ? raw.linkedAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeGithubConnection(record: GitHubConnectionRecord): Promise<void> {
+  await mkdir(githubSecretsRootPath, { recursive: true });
+  await writeFile(githubConnectionFilePath, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  await chmod(githubConnectionFilePath, 0o600);
+}
+
+function githubConnectionSummary(record: GitHubConnectionRecord | null) {
+  return {
+    connected: Boolean(record),
+    login: record?.login ?? null,
+    avatarUrl: record?.avatarUrl ?? null,
+    profileUrl: record?.profileUrl ?? null,
+    linkedAt: record?.linkedAt ?? null,
+    oauthConfigured: githubOAuthConfigured(),
+  };
+}
+
+async function githubApi<T>(pathname: string, token: string): Promise<T> {
+  const response = await fetch(`https://api.github.com${pathname}`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "user-agent": "termes",
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub API request failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
+async function uniqueProjectKey(db: Db, baseKey: string): Promise<string> {
+  const base = slugifyProjectKey(baseKey);
+  for (let index = 0; index < 20; index += 1) {
+    const candidate = index === 0 ? base : `${base.slice(0, Math.max(2, 36 - String(index).length - 1))}-${index}`;
+    const result = await db.pool.query<{ exists: boolean }>("select exists(select 1 from projects where key = $1) as exists", [
+      candidate,
+    ]);
+    if (!result.rows[0]?.exists) {
+      return candidate;
+    }
+  }
+  return `${base.slice(0, 26)}-${Date.now().toString(36)}`;
+}
+
+async function cloneGithubRepository(input: {
+  repositoryFullName: string;
+  targetAbsolutePath: string;
+  token: string;
+}): Promise<void> {
+  const askpassDir = await mkdtemp(path.join(os.tmpdir(), "termes-git-askpass-"));
+  const askpassPath = path.join(askpassDir, "askpass.sh");
+  const script = [
+    "#!/bin/sh",
+    "case \"$1\" in",
+    "  *Username*) printf '%s\\n' 'x-access-token' ;;",
+    `  *) printf '%s\\n' '${input.token.replace(/'/g, "'\\''")}' ;;`,
+    "esac",
+    "",
+  ].join("\n");
+
+  try {
+    await writeFile(askpassPath, script, { mode: 0o700 });
+    await chmod(askpassPath, 0o700);
+    await execFileAsync("git", ["clone", `https://github.com/${input.repositoryFullName}.git`, input.targetAbsolutePath], {
+      env: {
+        ...process.env,
+        GIT_ASKPASS: askpassPath,
+        GIT_TERMINAL_PROMPT: "0",
+      },
+      timeout: 120_000,
+    });
+  } finally {
+    await rm(askpassDir, { recursive: true, force: true });
+  }
 }
 
 function mapProject(row: {
@@ -481,6 +689,141 @@ async function main(): Promise<void> {
   app.get("/api/health", healthPayload);
   app.get("/api/healthz", healthPayload);
 
+  app.get("/api/github/status", async () => {
+    return { github: githubConnectionSummary(await readGithubConnection()) };
+  });
+
+  app.get("/api/github/oauth/start", async (request, reply) => {
+    if (!githubOAuthConfigured()) {
+      return reply.code(503).send({ error: "GitHub OAuth is not configured" });
+    }
+
+    const query = z.object({ returnTo: z.string().optional() }).parse(request.query);
+    const state = randomBytes(24).toString("hex");
+    await redis.set(
+      `github.oauth.state.${state}`,
+      JSON.stringify({ returnTo: safeReturnTo(query.returnTo) }),
+      "EX",
+      600,
+    );
+
+    const oauthUrl = new URL("https://github.com/login/oauth/authorize");
+    oauthUrl.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID?.trim() || "");
+    oauthUrl.searchParams.set("redirect_uri", `${buildExternalBaseUrl(request)}/api/github/oauth/callback`);
+    oauthUrl.searchParams.set("state", state);
+    oauthUrl.searchParams.set("scope", "repo read:org");
+
+    return reply.header("location", oauthUrl.toString()).code(302).send();
+  });
+
+  app.get("/api/github/oauth/callback", async (request, reply) => {
+    if (!githubOAuthConfigured()) {
+      return reply.code(503).send({ error: "GitHub OAuth is not configured" });
+    }
+
+    const query = z.object({ code: z.string().optional(), state: z.string().optional() }).parse(request.query);
+    const stateKey = query.state ? `github.oauth.state.${query.state}` : "";
+    const rawState = stateKey ? await redis.get(stateKey) : null;
+    if (stateKey) {
+      await redis.del(stateKey);
+    }
+
+    const returnTo = safeReturnTo(rawState ? (JSON.parse(rawState) as { returnTo?: string }).returnTo : "/");
+    const redirectUrl = new URL(returnTo, buildExternalBaseUrl(request));
+
+    try {
+      if (!query.code || !rawState) {
+        throw new Error("GitHub OAuth state is invalid");
+      }
+
+      const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": "termes",
+        },
+        body: new URLSearchParams({
+          client_id: process.env.GITHUB_CLIENT_ID?.trim() || "",
+          client_secret: process.env.GITHUB_CLIENT_SECRET?.trim() || "",
+          code: query.code,
+          redirect_uri: `${buildExternalBaseUrl(request)}/api/github/oauth/callback`,
+        }),
+      });
+      const tokenPayload = (await tokenResponse.json()) as { access_token?: string; error?: string; error_description?: string };
+      if (!tokenResponse.ok || !tokenPayload.access_token) {
+        throw new Error(tokenPayload.error_description || tokenPayload.error || "GitHub OAuth token exchange failed");
+      }
+
+      const user = await githubApi<GitHubApiUser>("/user", tokenPayload.access_token);
+      await writeGithubConnection({
+        accessToken: tokenPayload.access_token,
+        login: user.login || null,
+        avatarUrl: user.avatar_url || null,
+        profileUrl: user.html_url || null,
+        linkedAt: new Date().toISOString(),
+      });
+
+      redirectUrl.searchParams.set("github_oauth", "success");
+      redirectUrl.searchParams.set("github_oauth_message", "GitHub 로그인이 완료되었습니다.");
+    } catch (error) {
+      redirectUrl.searchParams.set("github_oauth", "error");
+      redirectUrl.searchParams.set(
+        "github_oauth_message",
+        error instanceof Error ? error.message : "GitHub 로그인에 실패했습니다.",
+      );
+    }
+
+    return reply.header("location", redirectUrl.toString()).code(302).send();
+  });
+
+  app.get("/api/github/repositories", async (request, reply) => {
+    const connection = await readGithubConnection();
+    if (!connection) {
+      return reply.code(401).send({ error: "GitHub login is required" });
+    }
+
+    const query = z.object({ q: z.string().trim().optional() }).parse(request.query);
+    const repositories = await githubApi<GitHubApiRepository[]>(
+      "/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
+      connection.accessToken,
+    );
+    const normalizedQuery = query.q?.toLowerCase() || "";
+    const grouped = new Map<string, GitHubApiRepository[]>();
+    for (const repository of repositories) {
+      if (!repository.full_name || !repository.name || !repository.owner?.login) {
+        continue;
+      }
+      if (normalizedQuery && !repository.full_name.toLowerCase().includes(normalizedQuery)) {
+        continue;
+      }
+      const owner = repository.owner.login;
+      const key = owner === connection.login ? "personal" : `group:${owner}`;
+      grouped.set(key, [...(grouped.get(key) || []), repository]);
+    }
+
+    const groups = [...grouped.entries()].map(([key, items]) => {
+      const first = items[0];
+      const owner = first?.owner?.login || "";
+      const personal = key === "personal";
+      return {
+        groupId: key,
+        label: personal ? "개인 저장소" : `${owner} 저장소`,
+        owner,
+        scope: personal ? "personal" : "group",
+        repositories: items.map((repository) => ({
+          owner: repository.owner?.login || "",
+          name: repository.name || "",
+          fullName: repository.full_name || "",
+          visibility: repository.visibility || (repository.private ? "private" : "public"),
+          defaultBranch: repository.default_branch || "main",
+        })),
+      };
+    });
+
+    return { groups };
+  });
+
   app.get("/api/projects", async () => {
     const result = await db.pool.query<{
       id: string;
@@ -589,6 +932,84 @@ async function main(): Promise<void> {
     });
 
     return reply.code(201).send({ project });
+  });
+
+  app.post("/api/projects/github-clone", async (request, reply) => {
+    const input = githubCloneInputSchema.parse(request.body);
+    const connection = await readGithubConnection();
+    if (!connection) {
+      return reply.code(401).send({ error: "GitHub login is required" });
+    }
+
+    const repositoryName = input.repositoryFullName.split("/")[1];
+    if (!repositoryName) {
+      return reply.code(400).send({ error: "GitHub repository name is invalid" });
+    }
+    const targetRelativePath = normalizeRelativeWorkspacePath(path.posix.join(input.parentPath || "", repositoryName));
+    const targetAbsolutePath = resolveProjectSandboxPath(targetRelativePath);
+
+    await mkdir(path.dirname(targetAbsolutePath), { recursive: true });
+    try {
+      await cloneGithubRepository({
+        repositoryFullName: input.repositoryFullName,
+        targetAbsolutePath,
+        token: connection.accessToken,
+      });
+    } catch (error) {
+      return reply.code(409).send({
+        error: error instanceof Error ? error.message.replace(connection.accessToken, "[REDACTED]") : "GitHub clone failed",
+      });
+    }
+
+    const key = await uniqueProjectKey(db, repositoryName);
+    const client = await db.pool.connect();
+    let row: ProjectRow | undefined;
+    try {
+      await client.query("begin");
+      const result = await client.query<ProjectRow>(
+        `
+          insert into projects (key, name, description)
+          values ($1, $2, $3)
+          returning id, key, name, description, $4::text as workspace_path, created_at, updated_at
+        `,
+        [key, repositoryName, `GitHub clone: ${input.repositoryFullName}`, targetAbsolutePath],
+      );
+      row = result.rows[0];
+      if (!row) {
+        throw new Error("Project insert did not return a row");
+      }
+      await client.query(
+        `
+          insert into workspace_roots (project_id, host_path)
+          values ($1, $2)
+        `,
+        [row.id, targetAbsolutePath],
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const project = mapProject(row);
+    await appendEvent(db.pool, redis, {
+      projectId: row.id,
+      type: "project.created",
+      payload: {
+        key: row.key,
+        name: row.name,
+        source: "github",
+        repositoryFullName: input.repositoryFullName,
+      },
+    });
+
+    return reply.code(201).send({
+      project,
+      repositoryFullName: input.repositoryFullName,
+      workspacePath: targetAbsolutePath,
+    });
   });
 
   app.patch("/api/projects/:projectId", async (request, reply) => {

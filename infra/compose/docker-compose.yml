@@ -79,10 +79,17 @@ services:
       REDIS_URL: redis://redis:6379
       HERMES_MANAGER_URL: http://hermes-manager:8080
       MIGRATIONS_DIR: /app/infra/db/migrations
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://100.64.0.9:4180}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_LOGIN: ${GITHUB_LOGIN:-}
+      GITHUB_SECRETS_ROOT: /data/docker_data/termes/secrets
     ports:
       - "${TERMES_API_BIND}:${TERMES_API_PORT}:8080"
     volumes:
       - /data/docker_data/termes/workspaces:/data/docker_data/termes/workspaces
+      - /data/docker_data/termes/secrets:/data/docker_data/termes/secrets
     depends_on:
       migrate:
         condition: service_completed_successfully

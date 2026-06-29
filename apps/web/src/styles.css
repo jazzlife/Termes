@@ -350,6 +350,36 @@ svg {
   line-height: 1.25;
 }
 
+.projectDrawerTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.projectDrawerTabs button {
+  display: flex;
+  min-width: 0;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.projectDrawerTabs button.active {
+  background: #ffffff;
+  color: #0f172a;
+}
+
 .projectDrawerWorkspace {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -425,6 +455,124 @@ svg {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.githubProjectPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.githubAuthCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.githubAuthCard div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  color: #f8fafc;
+}
+
+.githubAuthCard strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectDrawerMessage {
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 199, 120, 0.18);
+  border-radius: 8px;
+  background: rgba(216, 199, 120, 0.08);
+  color: #dbe4ef;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.githubManualRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.githubRepositoryList {
+  display: grid;
+  max-height: 280px;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.githubRepositoryGroup {
+  display: grid;
+  gap: 8px;
+}
+
+.githubRepositoryGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.githubRepositoryGroupHeader span {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.githubRepositoryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.githubRepositoryRow strong,
+.githubRepositoryRow span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.githubRepositoryRow strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.githubRepositoryRow span {
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.githubRepositoryEmpty {
+  padding: 18px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
 }
 
 .mobileNotice {
