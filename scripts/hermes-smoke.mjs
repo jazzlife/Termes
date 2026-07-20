@@ -7,6 +7,7 @@ const baseUrl = (process.env.TERMES_BASE_URL || targetArg || "http://100.64.0.9:
 const hermesBase = `${baseUrl}/api/hermes`;
 const auditId = Date.now().toString(36);
 const results = [];
+let sessionCookie = "";
 
 function assert(condition, message) {
   if (!condition) {
@@ -35,6 +36,7 @@ async function request(path, init = {}) {
     ...init,
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
+      ...(sessionCookie ? { cookie: sessionCookie } : {}),
       ...(init.headers || {}),
     },
   });
@@ -54,12 +56,37 @@ async function request(path, init = {}) {
   return body;
 }
 
+async function apiRequest(path, init = {}) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      ...(init.body ? { "content-type": "application/json" } : {}),
+      ...(sessionCookie ? { cookie: sessionCookie } : {}),
+      ...(init.headers || {}),
+    },
+  });
+  const text = await response.text();
+  let body = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+  if (!response.ok) {
+    throw new Error(`${init.method || "GET"} ${path} returned ${response.status}: ${text}`);
+  }
+  return body;
+}
+
 async function stream(path, init = {}) {
   const response = await fetch(`${hermesBase}${path}`, {
     ...init,
     headers: {
       accept: "text/event-stream",
       ...(init.body ? { "content-type": "application/json" } : {}),
+      ...(sessionCookie ? { cookie: sessionCookie } : {}),
       ...(init.headers || {}),
     },
   });
@@ -113,8 +140,39 @@ async function stream(path, init = {}) {
   return events;
 }
 
+async function waitForTaskAssistants(taskId, minimumCount, timeoutMs = 300_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const messageResult = await apiRequest(`/api/tasks/${encodeURIComponent(taskId)}/messages`);
+    const messages = Array.isArray(messageResult.messages) ? messageResult.messages : [];
+    if (messages.filter((message) => message.role === "assistant").length >= minimumCount) {
+      return messages;
+    }
+    const runtime = await apiRequest(`/api/tasks/${encodeURIComponent(taskId)}/runtime`);
+    if (runtime.task?.status === "failed") {
+      throw new Error(`task ${taskId} failed while waiting for assistant message`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`task ${taskId} did not produce ${minimumCount} assistant messages within ${timeoutMs}ms`);
+}
+
 async function main() {
   console.log(`# Termes Hermes smoke target: ${baseUrl}`);
+
+  const accountId = process.env.TERMES_ACCOUNT_ID || "00000000-0000-0000-0000-000000000001";
+  const accessCode = process.env.TERMES_ACCOUNT_ACCESS_CODE || "";
+  assert(accessCode.length >= 12, "TERMES_ACCOUNT_ACCESS_CODE is required for authenticated Hermes smoke");
+  const loginResponse = await fetch(`${baseUrl}/api/account-auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ accountId, accessCode }),
+  });
+  const loginText = await loginResponse.text();
+  assert(loginResponse.ok, `Termes account login failed with ${loginResponse.status}: ${loginText}`);
+  sessionCookie = (loginResponse.headers.get("set-cookie") || "").split(";")[0] || "";
+  assert(sessionCookie.startsWith("termes_session="), "Termes account login did not return a session cookie");
+  record("account_login", accountId);
 
   const capabilities = await request("/capabilities");
   assert(capabilities.features?.chat_completions, "chat completions feature is not advertised");
@@ -258,10 +316,14 @@ async function main() {
     body: JSON.stringify({ title: `Smoke ${auditId} updated` }),
   });
   await request(`/api/sessions/${encodeURIComponent(session.id)}/messages`);
-  await request(`/api/sessions/${encodeURIComponent(session.id)}/chat`, {
+  const sessionChat = await request(`/api/sessions/${encodeURIComponent(session.id)}/chat`, {
     method: "POST",
     body: JSON.stringify({ input: prompt }),
   });
+  assert(
+    typeof sessionChat?.message?.content === "string" && sessionChat.message.content.trim().length > 0,
+    "session chat returned an empty assistant message",
+  );
   const sessionEvents = await stream(`/api/sessions/${encodeURIComponent(session.id)}/chat/stream`, {
     method: "POST",
     body: JSON.stringify({ input: `${prompt} stream` }),
@@ -275,6 +337,56 @@ async function main() {
   await request(`/api/sessions/${encodeURIComponent(fork.id)}`, { method: "DELETE" });
   await request(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
   record("sessions", `${sessionEvents.length} stream events`);
+
+  const projectKey = `hermes-chat-smoke-${auditId}`;
+  let projectId = "";
+  try {
+    const createdProject = await apiRequest("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        key: projectKey,
+        name: `Hermes Chat Smoke ${auditId}`,
+        description: "Temporary project for real task chat verification.",
+      }),
+    });
+    projectId = createdProject.project.id;
+    const task = await apiRequest("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId,
+        title: `Hermes chat smoke ${auditId}`,
+        instructions: "Create a task so the UI task chat path can be verified.",
+      }),
+    });
+    await waitForTaskAssistants(task.task.id, 1);
+    await apiRequest(`/api/tasks/${encodeURIComponent(task.task.id)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content: `${prompt} task chat one` }),
+    });
+    const firstChat = { messages: await waitForTaskAssistants(task.task.id, 2) };
+    assert(
+      Array.isArray(firstChat.messages) && firstChat.messages.some((message) => message.role === "assistant"),
+      "task chat did not return an assistant message",
+    );
+    const runtime = await apiRequest(`/api/tasks/${encodeURIComponent(task.task.id)}/runtime`);
+    const sessionId = runtime.sessions?.find((item) => item.hermesSessionId)?.hermesSessionId;
+    assert(typeof sessionId === "string" && sessionId.length > 0, "task chat did not create a Hermes session");
+    await request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+    await apiRequest(`/api/tasks/${encodeURIComponent(task.task.id)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content: `${prompt} task chat after stale session` }),
+    });
+    const recoveredChat = { messages: await waitForTaskAssistants(task.task.id, 3) };
+    assert(
+      Array.isArray(recoveredChat.messages) && recoveredChat.messages.some((message) => message.role === "assistant"),
+      "task chat did not recover from a stale Hermes session",
+    );
+    record("task_chat_recovery", sessionId);
+  } finally {
+    if (projectId) {
+      await apiRequest(`/api/projects/${encodeURIComponent(projectId)}?removeWorkspace=true`, { method: "DELETE" });
+    }
+  }
 
   const job = await request("/api/jobs", {
     method: "POST",

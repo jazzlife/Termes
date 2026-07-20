@@ -18,6 +18,13 @@ FROM node:22-alpine
 
 WORKDIR /app/services/hermes-manager
 ENV NODE_ENV=production
+ARG CODEX_VERSION=0.144.1
+ARG CODEX_INSTALL_REVISION=2
+RUN npm install --global "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
+RUN test -s /usr/local/lib/node_modules/@openai/codex/package.json && \
+    find /usr/local/lib/node_modules/@openai/codex/node_modules/@openai -type f -name codex -size +0c | grep -q . && \
+    test "$(codex --version)" = "codex-cli ${CODEX_VERSION}" && \
+    test -n "${CODEX_INSTALL_REVISION}"
 
 COPY --from=build /app/services/hermes-manager/dist dist
 EXPOSE 8080

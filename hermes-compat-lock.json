@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/realfishsam/hermes-agent.git",
+  "commit": "7fb875451bcef8c379ece6779c6b147eef42c05d",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
+    "tui_gateway/server.py": "bc1d2ec93aa45713a98d6c44e5e13d4965ae096e2666dd453fc22448a6db8d39",
+    "tui_gateway/ws.py": "840c4458cab40a3a1c0f2519228fea0dbeaff08695f751ebbbd4897790c62af7",
+    "apps/shared/src/json-rpc-gateway.ts": "d5ea6ae4dd9978cfc7f7152dd2435d2e6806993c08a15ade499f8888da9fbc2c",
+    "apps/desktop/src/app/routes.ts": "68138218a316e7d144e646054543cec1e155172b5c0f850d94cac84db9ba63c6",
+    "apps/desktop/src/lib/chat-messages.ts": "35878d95e2b2c12e569d04a456b94718de7486d1c44ccab4d37e1b8f3491b82e",
+    "apps/desktop/src/lib/chat-runtime.ts": "1e066aa1fce137021379bf1de0a0bdbf4d7376f614a5cb801be0c6b4efe49676",
+    "apps/desktop/src/app/session/hooks/use-message-stream.ts": "f53ac245b66a9eb9324d388b23d08d31633438c4caab36a607027d43989b1cf2",
+    "apps/desktop/scripts/measure-submit.mjs": "ca845d91cb147b24a37946eef6d7592ec57189819abe478a69549a2b64e9cea9",
+    "apps/desktop/scripts/measure-real-stream.mjs": "87cf9fb7b344515fe55dd69cb1e8464b47d5b03969bf09e23c6728b13769e893",
+    "apps/desktop/scripts/leak-typing.mjs": "d3706b166c52d2ba94d3c1a3cfb6ae4b69e44cff5bbb00f087dc4b458d48f3fa",
+    "apps/desktop/scripts/measure-latency.mjs": "81c17196cfe96aa99edcd1c4c7ffdaf572c7a126e5312f8ba19e0203d430c95f",
+    "apps/desktop/scripts/measure-synthetic-stream.mjs": "4ab5287bc19ef7ef5369a7e1e91439ee4dbaa33d4d7e3b16426a9f19a5269a5e",
+    "apps/desktop/scripts/profile-real-stream.mjs": "60219130606240f780b1c227ab86efc353b571d71f4f50c320ea33cfddf73a35",
+    "apps/desktop/scripts/profile-typing.mjs": "a5b979ba10bd0e264d41bb4d7111e4daada7ce0834eb2c50a4cbb2d787844516",
+    "apps/desktop/scripts/measure-jump.mjs": "1cc003943e5c3d4455d865d5bf6d92a19650f8444a5f2b19f66be3fdfa083fda"
+  },
+  "methodManifestSha256": "95a6223bc4da8f61f1b4558160882307f210f3c7f05378adc97fa72afc17be0d",
+  "eventManifestSha256": "eb5aa1da4e42a18bde0dda94d5be070a908d6215d163f7f7ff8f576d233ad675",
+  "routeManifestSha256": "e88efec068ad603bc9a1d93b99da862330c38d4dfbdeb2133b994c4d5a709057"
+}

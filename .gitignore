@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 infra/compose/.env
+infra/compose/.account-access-codes.runtime.json
 
 .secrets/
 secrets/*.enc.json

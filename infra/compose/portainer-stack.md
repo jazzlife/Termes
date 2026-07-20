@@ -24,33 +24,39 @@ docker compose --env-file infra/compose/.env -f infra/compose/docker-compose.yml
 
 Portainer can use the same compose file. Keep `TERMES_NPM_NETWORK=npm_bridge` on this server so `web` and `api` can join the existing Nginx Proxy Manager network.
 
-For direct Tailscale access on this server, set:
+For direct public access on this server, set:
 
 ```env
-TERMES_WEB_BIND=100.64.0.9
+TERMES_WEB_BIND=0.0.0.0
 TERMES_WEB_PORT=4180
 TERMES_API_BIND=127.0.0.1
 TERMES_API_PORT=4181
+PUBLIC_BASE_URL=http://100.64.0.9:4180
+GITHUB_OAUTH_CALLBACK_URL=http://100.64.0.9:4180/api/github/oauth/callback
+GITHUB_BROWSER_OAUTH_ENABLED=false
 ```
+
+Register the same `GITHUB_OAUTH_CALLBACK_URL` in the GitHub OAuth App settings.
+The URL must match exactly, including scheme, host, port, and path. Device Code
+login remains available without callback registration when `GITHUB_CLIENT_ID` is
+set. Set `GITHUB_BROWSER_OAUTH_ENABLED=true` only after the callback URL is
+registered in GitHub.
 
 ## Official Hermes Agent profile
 
-The stack includes an optional `hermes-upstream` profile for the official Hermes Agent gateway. Use it after adding a Hermes API key and either one model provider key or OpenAI Codex OAuth state to the server-local volumes:
+The stack includes an optional `hermes-upstream` profile for the official Hermes Agent gateway and dashboard. Configure internal service tokens:
 
 ```env
 HERMES_AGENT_API_KEY=<strong-random-key>
 HERMES_API_BASE_URL=http://hermes-agent:8642
 HERMES_API_KEY=<same-as-HERMES_AGENT_API_KEY>
-OPENAI_API_KEY=<provider-key>
+HERMES_MANAGER_SERVICE_TOKEN=<strong-random-internal-token>
+HERMES_DASHBOARD_SESSION_TOKEN=<strong-random-internal-token>
 ```
 
-For OpenAI OAuth, the Termes image includes Codex CLI. After the profile starts, run:
-
-```bash
-docker exec -it termes-hermes-agent sh -lc 'codex login'
-docker exec -it termes-hermes-agent sh -lc 'cd /opt/hermes && /opt/hermes/.venv/bin/hermes auth add openai-codex'
-docker exec termes-hermes-agent sh -lc 'cd /opt/hermes && /opt/hermes/.venv/bin/hermes config set model.provider openai-codex && /opt/hermes/.venv/bin/hermes config set model.openai_runtime codex_app_server'
-```
+OpenAI provider API keys are not supported. After the profile starts, complete
+both ChatGPT device-code steps from the Termes OpenAI account screen. Tokens
+remain in the persistent server volume and are never returned to the browser.
 
 Then enable the profile in Portainer or start it from SSH:
 

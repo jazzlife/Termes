@@ -7,6 +7,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
 COPY packages/shared/src packages/shared/src
+COPY packages/eventing/package.json packages/eventing/package.json
+COPY packages/eventing/tsconfig.json packages/eventing/tsconfig.json
+COPY packages/eventing/src packages/eventing/src
 COPY services/orchestrator/package.json services/orchestrator/package.json
 COPY services/orchestrator/tsconfig.json services/orchestrator/tsconfig.json
 COPY services/orchestrator/src services/orchestrator/src

@@ -60,14 +60,8 @@ fi
 check_env_key HERMES_API_BASE_URL
 check_env_key HERMES_API_KEY
 check_env_key HERMES_AGENT_API_KEY
-
-PROVIDER_KEY_SET=0
-if env_is_set OPENAI_API_KEY || env_is_set OPENROUTER_API_KEY || env_is_set ANTHROPIC_API_KEY; then
-  PROVIDER_KEY_SET=1
-  ok "provider_key=set"
-else
-  note "provider_key=empty"
-fi
+check_env_key HERMES_MANAGER_SERVICE_TOKEN
+check_env_key HERMES_DASHBOARD_SESSION_TOKEN
 
 if command -v docker >/dev/null 2>&1 && [ -f "$COMPOSE_FILE" ] && [ -f "$ENV_FILE" ]; then
   services=$($COMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile hermes-upstream config --services 2>/dev/null || true)
@@ -75,6 +69,12 @@ if command -v docker >/dev/null 2>&1 && [ -f "$COMPOSE_FILE" ] && [ -f "$ENV_FIL
     ok "compose_service=hermes-agent"
   else
     warn "compose_service=hermes-agent_missing"
+  fi
+
+  if printf '%s\n' "$services" | grep -qx 'hermes-dashboard'; then
+    ok "compose_service=hermes-dashboard"
+  else
+    warn "compose_service=hermes-dashboard_missing"
   fi
 
   ps_output=$($COMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps hermes-agent 2>/dev/null || true)
@@ -89,73 +89,24 @@ if command -v docker >/dev/null 2>&1 && [ -f "$COMPOSE_FILE" ] && [ -f "$ENV_FIL
     warn "container=termes-hermes-agent_absent"
   fi
 
-  codex_check=$($COMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T hermes-agent sh -lc '
-if command -v codex >/dev/null 2>&1; then
-  printf "codex_cli=%s\n" "$(codex --version 2>/dev/null | head -n 1)"
-else
-  printf "codex_cli=missing\n"
-fi
-if [ -s /opt/data/.codex/auth.json ]; then
-  printf "codex_oauth=present\n"
-else
-  printf "codex_oauth=missing\n"
-fi
-if [ -s /opt/data/auth.json ] && grep -q "openai-codex" /opt/data/auth.json; then
-  printf "hermes_openai_codex_oauth=present\n"
-else
-  printf "hermes_openai_codex_oauth=missing\n"
-fi
-if grep -q "openai_runtime: codex_app_server" /opt/data/config.yaml 2>/dev/null; then
-  printf "codex_app_server=enabled\n"
-else
-  printf "codex_app_server=disabled\n"
-fi
-' 2>/dev/null || true)
-  printf '%s\n' "$codex_check"
-  if printf '%s\n' "$codex_check" | grep -q '^codex_cli=.*[0-9]'; then
-    ok "codex_cli=installed"
-  else
-    warn "codex_cli=missing"
-  fi
-  CODEX_OAUTH_READY=0
-  if printf '%s\n' "$codex_check" | grep -q '^codex_oauth=present' &&
-    printf '%s\n' "$codex_check" | grep -q '^hermes_openai_codex_oauth=present' &&
-    printf '%s\n' "$codex_check" | grep -q '^codex_app_server=enabled'; then
-    CODEX_OAUTH_READY=1
-    ok "codex_oauth_runtime=ready"
-  else
-    warn "codex_oauth_runtime=not_ready"
-  fi
-
   manager_check=$($COMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T hermes-manager node -e '
-const base = process.env.HERMES_API_BASE_URL;
-if (!base) {
-  console.log("manager_upstream=not_configured");
-  process.exit(2);
-}
-fetch(base.replace(/\/+$/, "") + "/health", {
-  headers: process.env.HERMES_API_KEY ? { authorization: `Bearer ${process.env.HERMES_API_KEY}` } : {}
-}).then(async (response) => {
-  console.log(`manager_upstream_http=${response.status}`);
-  process.exit(response.ok ? 0 : 3);
+fetch("http://127.0.0.1:8080/upstream/diagnostics").then(async (response) => {
+  const body = await response.text();
+  console.log(`manager_diagnostics_http=${response.status}`);
+  console.log(`manager_diagnostics=${body}`);
+  process.exit(response.ok && body.includes("\"ready\":true") ? 0 : 3);
 }).catch((error) => {
-  console.log(`manager_upstream_error=${error.message}`);
+  console.log(`manager_diagnostics_error=${error.message}`);
   process.exit(4);
 });
 ' 2>/dev/null || true)
-  if printf '%s\n' "$manager_check" | grep -q 'manager_upstream_http=2'; then
-    ok "$manager_check"
+  if printf '%s\n' "$manager_check" | grep -q '"ready":true'; then
+    ok "oauth_runtime=ready"
   else
     warn "${manager_check:-manager_upstream_check=failed}"
   fi
 else
   warn "docker_compose_check=skipped"
-fi
-
-if [ "$PROVIDER_KEY_SET" -eq 0 ] && [ "${CODEX_OAUTH_READY:-0}" -eq 0 ]; then
-  warn "provider_auth=missing"
-else
-  ok "provider_auth=ready"
 fi
 
 if command -v curl >/dev/null 2>&1; then

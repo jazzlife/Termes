@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Termes logo concept</title>
+  <desc id="description">A white T set in a blue turtle shell, with a green turtle head and three wing-like motion strokes representing Hermes.</desc>
+
+  <rect width="1024" height="1024" rx="224" fill="#0D1016"/>
+
+  <!-- Hermes: three restrained wing feathers / delivery trails. -->
+  <g fill="none" stroke="#79A7FF" stroke-linecap="round" stroke-width="52">
+    <path d="M154 420C214 408 255 371 307 314"/>
+    <path d="M128 512C208 505 258 477 304 430"/>
+    <path d="M154 604C218 599 261 580 307 544"/>
+  </g>
+
+  <!-- Turtle: compact shell, neck and head kept inside the maskable safe area. -->
+  <path d="M586 270C618 202 674 184 706 220C724 242 708 276 658 310Z" fill="#65C49D"/>
+  <path d="M586 754C618 822 674 840 706 804C724 782 708 748 658 714Z" fill="#65C49D"/>
+  <path d="M348 242H580C690 242 764 354 764 512S690 782 580 782H348C266 782 224 665 224 512S266 242 348 242Z" fill="#2563EB"/>
+  <path d="M738 456H790V568H738Z" fill="#65C49D"/>
+  <circle cx="824" cy="512" r="72" fill="#65C49D"/>
+  <circle cx="850" cy="490" r="10" fill="#0D1016"/>
+
+  <!-- T: the product initial and Turtle initial, cut as a bold UI-scale monogram. -->
+  <path d="M344 354H654C670 354 682 366 682 382V436C682 452 670 464 654 464H558V680C558 696 546 708 530 708H468C452 708 440 696 440 680V464H344C328 464 316 452 316 436V382C316 366 328 354 344 354Z" fill="#FFFFFF"/>
+</svg>

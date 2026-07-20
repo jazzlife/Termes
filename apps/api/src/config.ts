@@ -1,3 +1,5 @@
+import { parseAccountAccessHashes } from "./account-auth";
+
 export interface ApiConfig {
   host: string;
   port: number;
@@ -5,6 +7,13 @@ export interface ApiConfig {
   redisUrl: string;
   migrationsDir: string;
   hermesManagerUrl: string;
+  hermesManagerServiceToken: string;
+  deviceGatewayUrl: string;
+  singleAccountId: string;
+  singleWorkspaceId: string;
+  singleRuntimeCellId: string;
+  oauthAdminAccountId: string;
+  accountAccessHashes: Map<string, Buffer>;
 }
 
 function requiredEnv(name: string): string {
@@ -38,5 +47,12 @@ export function loadConfig(): ApiConfig {
     redisUrl: requiredEnv("REDIS_URL"),
     migrationsDir: process.env.MIGRATIONS_DIR || "/app/infra/db/migrations",
     hermesManagerUrl: (process.env.HERMES_MANAGER_URL || "http://hermes-manager:8080").replace(/\/+$/, ""),
+    hermesManagerServiceToken: requiredEnv("HERMES_MANAGER_SERVICE_TOKEN"),
+    deviceGatewayUrl: (process.env.DEVICE_GATEWAY_URL || "http://device-gateway:8080").replace(/\/+$/, ""),
+    singleAccountId: requiredEnv("TERMES_SINGLE_ACCOUNT_ID"),
+    singleWorkspaceId: requiredEnv("TERMES_SINGLE_WORKSPACE_ID"),
+    singleRuntimeCellId: requiredEnv("TERMES_SINGLE_RUNTIME_CELL_ID"),
+    oauthAdminAccountId: requiredEnv("TERMES_OAUTH_ADMIN_ACCOUNT_ID"),
+    accountAccessHashes: parseAccountAccessHashes(requiredEnv("TERMES_ACCOUNT_ACCESS_HASHES_JSON")),
   };
 }

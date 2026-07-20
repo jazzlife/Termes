@@ -1,8 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TERMES_VERSION } from "@termes/shared";
+import websocket from "@fastify/websocket";
 import Fastify from "fastify";
+import WebSocket, { type RawData } from "ws";
+import { CodexOAuthBroker } from "./codex-oauth-broker";
 
 type ManagedRunStatus = "started" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
 
@@ -124,11 +127,19 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-function truthyObject(value: unknown): boolean {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  return Object.keys(value as Record<string, unknown>).length > 0;
+function secureEqual(left: string, right: string): boolean {
+  const leftHash = createHash("sha256").update(left).digest();
+  const rightHash = createHash("sha256").update(right).digest();
+  return timingSafeEqual(leftHash, rightHash);
+}
+
+function dashboardWebSocketUrl(baseUrl: string, token: string): string {
+  const url = new URL(baseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/api/ws`;
+  url.search = "";
+  url.searchParams.set("token", token);
+  return url.toString();
 }
 
 function parseModelConfig(text: string): {
@@ -162,14 +173,6 @@ function parseModelConfig(text: string): {
     }
   }
   return result;
-}
-
-async function readJsonFileIfPresent(filePath: string): Promise<Record<string, unknown> | null> {
-  try {
-    return JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 function port(): number {
@@ -214,6 +217,36 @@ function authHeaders(): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+function fetchErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "fetch failed";
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function ensureIdempotencyKey(headers: Record<string, string>, seed: unknown): Record<string, string> {
+  if (headers["idempotency-key"]) {
+    return headers;
+  }
+  return {
+    ...headers,
+    "idempotency-key": `termes-${createHash("sha256").update(JSON.stringify(seed)).digest("hex").slice(0, 32)}`,
+  };
+}
+
 function forwardedHermesHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
   const forwarded: Record<string, string> = {};
   for (const name of ["idempotency-key", "x-hermes-session-id", "x-hermes-session-key"]) {
@@ -250,6 +283,13 @@ function runPath(runsRoot: string, runId: string): string {
   return path.join(runsRoot, runId, "run.json");
 }
 
+async function writeFileAtomic(filePath: string, content: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
+  await writeFile(tempPath, content);
+  await rename(tempPath, filePath);
+}
+
 async function readManagedRun(runsRoot: string, runId: string): Promise<ManagedRun> {
   const raw = await readFile(runPath(runsRoot, runId), "utf8");
   return JSON.parse(raw) as ManagedRun;
@@ -260,8 +300,7 @@ async function findManagedRun(runsRoot: string, runId: string): Promise<ManagedR
 }
 
 async function writeManagedRun(runsRoot: string, run: ManagedRun): Promise<void> {
-  await mkdir(path.dirname(runPath(runsRoot, run.run_id)), { recursive: true });
-  await writeFile(runPath(runsRoot, run.run_id), `${JSON.stringify(run, null, 2)}\n`);
+  await writeFileAtomic(runPath(runsRoot, run.run_id), `${JSON.stringify(run, null, 2)}\n`);
 }
 
 function appendRunEvent(run: ManagedRun, type: string, data: Record<string, unknown>): void {
@@ -392,8 +431,7 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  await writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 async function listJsonFiles<T>(root: string): Promise<T[]> {
@@ -483,6 +521,37 @@ function textFromChatCompletionResponse(value: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function stringRecordValue(value: unknown, key: string): string {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" ? candidate.trim() : "";
+}
+
+function hermesRuntimeFailure(value: unknown, assistantText = ""): string | null {
+  const visibleText = assistantText.trim();
+  const runtimeErrorPattern = /codex app-server|stdin closed unexpectedly|broken pipe|fall back to default runtime/i;
+  if (visibleText && runtimeErrorPattern.test(visibleText)) {
+    return visibleText;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const explicitError = stringRecordValue(record, "error") || stringRecordValue(record, "message");
+  if (explicitError && (record.completed === false || record.partial === true || runtimeErrorPattern.test(explicitError))) {
+    return explicitError;
+  }
+  if (record.completed === false) {
+    return explicitError || "Hermes upstream reported an incomplete Codex app-server turn.";
+  }
+
+  return null;
 }
 
 function sessionTitleFromInput(input: string): string {
@@ -831,6 +900,44 @@ async function main(): Promise<void> {
   const baseUrl = optionalBaseUrl();
   const runnerUrl = optionalRunnerUrl();
   const officialAgentUrl = optionalOfficialAgentUrl();
+  const dashboardBaseUrl = (process.env.HERMES_DASHBOARD_BASE_URL || "").trim().replace(/\/+$/, "");
+  const dashboardSessionToken = (process.env.HERMES_DASHBOARD_SESSION_TOKEN || "").trim();
+  const managerServiceToken = requiredEnv("HERMES_MANAGER_SERVICE_TOKEN");
+  const cellAuthorityToken = requiredEnv("HERMES_CELL_AUTHORITY_TOKEN");
+  const singleAccountId = requiredEnv("TERMES_SINGLE_ACCOUNT_ID");
+  const singleWorkspaceId = requiredEnv("TERMES_SINGLE_WORKSPACE_ID");
+  const singleRuntimeCellId = requiredEnv("TERMES_SINGLE_RUNTIME_CELL_ID");
+  const managerGatewayBaseUrl = requiredEnv("HERMES_MANAGER_GATEWAY_BASE_URL").replace(/\/+$/, "");
+  const codexHome = requiredEnv("CODEX_HOME");
+  type AccountCellRoute = {
+    accountId: string;
+    workspaceId: string;
+    runtimeCellId: string;
+    dashboardBaseUrl: string;
+  };
+  const rawCellRoutes = process.env.HERMES_ACCOUNT_CELLS_JSON?.trim();
+  const accountCellRoutes: AccountCellRoute[] = rawCellRoutes
+    ? JSON.parse(rawCellRoutes) as AccountCellRoute[]
+    : [{
+        accountId: singleAccountId,
+        workspaceId: singleWorkspaceId,
+        runtimeCellId: singleRuntimeCellId,
+        dashboardBaseUrl,
+      }];
+  if (
+    !Array.isArray(accountCellRoutes)
+    || accountCellRoutes.length === 0
+    || accountCellRoutes.some((cell) =>
+      !cell.accountId || !cell.workspaceId || !cell.runtimeCellId || !cell.dashboardBaseUrl
+    )
+  ) {
+    throw new Error("HERMES_ACCOUNT_CELLS_JSON contains an invalid account cell route");
+  }
+  const runtimeCellIds = new Set(accountCellRoutes.map((cell) => cell.runtimeCellId));
+  if (runtimeCellIds.size !== accountCellRoutes.length) {
+    throw new Error("HERMES_ACCOUNT_CELLS_JSON contains duplicate runtime cell ids");
+  }
+  const oauthBroker = new CodexOAuthBroker(process.env.CODEX_BIN || "codex", codexHome);
 
   await mkdir(profilesRoot, { recursive: true });
   await mkdir(codexHomesRoot, { recursive: true });
@@ -840,13 +947,29 @@ async function main(): Promise<void> {
   await mkdir(jobsRoot, { recursive: true });
 
   const app = Fastify({ logger: true });
+  await app.register(websocket, { options: { maxPayload: 4 * 1024 * 1024 } });
   const idempotencyCache = new Map<string, { expiresAt: number; response: unknown }>();
+  const gatewayTickets = new Map<string, {
+    accountId: string;
+    workspaceId: string;
+    runtimeCellId: string;
+    dashboardBaseUrl: string;
+    expiresAt: number;
+  }>();
 
   app.addHook("onSend", async (_request, reply, payload) => {
     reply.header("x-content-type-options", "nosniff");
     reply.header("referrer-policy", "no-referrer");
     return payload;
   });
+  app.addHook("onClose", async () => {
+    oauthBroker.close();
+  });
+
+  function requireInternalAuthorization(authorization: string | undefined): boolean {
+    const presented = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
+    return Boolean(presented && secureEqual(presented, managerServiceToken));
+  }
 
   async function upstreamHealth(): Promise<{
     status: "not_configured" | "ok" | "error";
@@ -888,79 +1011,73 @@ async function main(): Promise<void> {
     }
   }
 
+  async function dashboardStatus(): Promise<{ status: "not_configured" | "ok" | "error"; error?: string }> {
+    if (!dashboardBaseUrl || !dashboardSessionToken) {
+      return { status: "not_configured" };
+    }
+    try {
+      const response = await fetch(`${dashboardBaseUrl}/health`);
+      if (!response.ok) {
+        throw new Error(`health returned ${response.status}`);
+      }
+      return { status: "ok" };
+    } catch (error) {
+      return { status: "error", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async function upstreamDiagnostics(): Promise<Record<string, unknown>> {
     const upstream = await upstreamHealth();
     const officialHealth = await officialAgentHealth();
     const agentStateRoot = process.env.HERMES_AGENT_STATE_ROOT || "/data/docker_data/termes/hermes-agent";
-    const codexHome = path.join(agentStateRoot, ".codex");
     const modelConfig = await readFile(path.join(agentStateRoot, "config.yaml"), "utf8")
       .then(parseModelConfig)
       .catch(() => ({ provider: null, model: null, openaiRuntime: null }));
-    const codexAuth = await readJsonFileIfPresent(path.join(codexHome, "auth.json"));
-    const hermesAuth = await readJsonFileIfPresent(path.join(agentStateRoot, "auth.json"));
-    const hermesAuthText = hermesAuth ? JSON.stringify(hermesAuth) : "";
-    const codexAuthConfigured =
-      Boolean(codexAuth?.auth_mode === "chatgpt" || codexAuth?.auth_mode === "oauth") ||
-      truthyObject(codexAuth?.tokens) ||
-      truthyObject(codexAuth?.OPENAI_API_KEY);
-    const hermesOpenAiCodexOAuthConfigured =
-      hermesAuthText.includes("openai-codex") &&
-      (hermesAuthText.includes("access_token") || hermesAuthText.includes("refresh_token"));
-    const providerKeys = {
-      OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEY_CONFIGURED === "true"),
-      OPENROUTER_API_KEY: Boolean(
-        process.env.OPENROUTER_API_KEY?.trim() || process.env.OPENROUTER_API_KEY_CONFIGURED === "true",
-      ),
-      ANTHROPIC_API_KEY: Boolean(
-        process.env.ANTHROPIC_API_KEY?.trim() || process.env.ANTHROPIC_API_KEY_CONFIGURED === "true",
-      ),
-    };
-    const hasProvider = Object.values(providerKeys).some(Boolean);
-    const codexRuntimeRequired = modelConfig.provider === "openai-codex" || modelConfig.openaiRuntime === "codex_app_server";
+    const [dashboard, codexAccountState] = await Promise.all([
+      dashboardStatus(),
+      oauthBroker.account().catch(() => null),
+    ]);
+    const account = codexAccountState?.account;
+    const codexAuthConfigured = Boolean(
+      account && typeof account === "object" && (account as Record<string, unknown>).type === "chatgpt",
+    );
     const codexReady =
       modelConfig.provider === "openai-codex" &&
       modelConfig.openaiRuntime === "codex_app_server" &&
-      codexAuthConfigured &&
-      hermesOpenAiCodexOAuthConfigured;
+      codexAuthConfigured;
     const baseUrlConfigured = Boolean(baseUrl);
-    const apiKeyConfigured = Boolean(process.env.HERMES_API_KEY?.trim());
     const officialAgentUrlConfigured = Boolean(officialAgentUrl);
-    const localProviderKeyRequired = officialAgentUrlConfigured || (baseUrlConfigured && baseUrl?.includes("hermes-agent"));
-    const ready =
-      baseUrlConfigured &&
-      upstream.status === "ok" &&
-      (localProviderKeyRequired ? (hasProvider || codexReady) && officialHealth.status === "ok" : true);
+    const ready = dashboard.status === "ok" && codexReady;
 
     return {
       baseUrlConfigured,
-      apiKeyConfigured,
       upstreamStatus: upstream.status,
       upstreamError: upstream.error,
       officialAgentUrlConfigured,
       officialAgentStatus: officialHealth.status,
       officialAgentError: officialHealth.error,
-      providerKeys,
+      dashboardStatus: dashboard.status,
+      dashboardError: dashboard.error,
       oauthProviders: {
-        "openai-codex": codexAuthConfigured && hermesOpenAiCodexOAuthConfigured,
+        "openai-codex": codexAuthConfigured,
       },
       codex: {
-        required: codexRuntimeRequired,
+        required: true,
         home: codexHome,
         authConfigured: codexAuthConfigured,
-        hermesAuthConfigured: hermesOpenAiCodexOAuthConfigured,
+        externalCellAuthorityConfigured: codexAuthConfigured,
         modelProvider: modelConfig.provider,
         model: modelConfig.model,
         openaiRuntime: modelConfig.openaiRuntime,
         appServerRuntimeConfigured: modelConfig.openaiRuntime === "codex_app_server",
         ready: codexReady,
       },
-      localProviderKeyRequired,
       ready,
       required: [
-        "Set HERMES_API_BASE_URL to the official Hermes API server URL.",
-        "Set HERMES_API_KEY when the upstream API server requires API_SERVER_KEY.",
-        "Set at least one Hermes provider key, or complete OpenAI Codex OAuth with model.provider=openai-codex and model.openai_runtime=codex_app_server.",
-        "Start the hermes-agent compose profile when using the bundled official Hermes container.",
+        "Complete ChatGPT device-code login for Codex app-server.",
+        "Account Cells obtain short-lived ChatGPT access tokens from the central authority.",
+        "Set model.provider=openai-codex and model.openai_runtime=codex_app_server.",
+        "Start the hermes-dashboard service and verify its JSON-RPC gateway.",
       ],
     };
   }
@@ -999,6 +1116,8 @@ async function main(): Promise<void> {
       job_run: true,
       skills: true,
       toolsets: true,
+      realtime_json_rpc: true,
+      openai_oauth_only: true,
     };
 
     return {
@@ -1137,6 +1256,192 @@ async function main(): Promise<void> {
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/v1/health", async () => ({ status: "ok" }));
+
+  app.get("/internal/gateway/connection", async (request, reply) => {
+    if (!requireInternalAuthorization(request.headers.authorization)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const query = request.query as {
+      profile?: string;
+      account_id?: string;
+      workspace_id?: string;
+      runtime_cell_id?: string;
+    };
+    if ((query.profile || "default") !== "default") {
+      return reply.code(400).send({ error: "Only the default profile is enabled during single-account stabilization" });
+    }
+    const accountCell = accountCellRoutes.find((cell) =>
+      cell.accountId === query.account_id
+      && cell.workspaceId === query.workspace_id
+      && cell.runtimeCellId === query.runtime_cell_id
+    );
+    if (!accountCell) {
+      return reply.code(403).send({ error: "Account cell scope is invalid" });
+    }
+    if (!dashboardBaseUrl || !dashboardSessionToken) {
+      return reply.code(503).send({ error: "Hermes dashboard realtime endpoint is not configured" });
+    }
+    const now = Date.now();
+    for (const [ticket, claims] of gatewayTickets) {
+      if (claims.expiresAt <= now) gatewayTickets.delete(ticket);
+    }
+    const response = await fetch(`${accountCell.dashboardBaseUrl}/health`);
+    if (!response.ok) {
+      return reply.code(503).send({ error: `Hermes dashboard health returned ${response.status}` });
+    }
+    const ticket = randomUUID();
+    gatewayTickets.set(ticket, {
+      accountId: accountCell.accountId,
+      workspaceId: accountCell.workspaceId,
+      runtimeCellId: accountCell.runtimeCellId,
+      dashboardBaseUrl: accountCell.dashboardBaseUrl,
+      expiresAt: now + 30_000,
+    });
+    const wsUrl = new URL(managerGatewayBaseUrl);
+    wsUrl.pathname = `${wsUrl.pathname.replace(/\/$/, "")}/internal/gateway/ws`;
+    wsUrl.searchParams.set("ticket", ticket);
+    return {
+      profile: "default",
+      accountId: accountCell.accountId,
+      workspaceId: accountCell.workspaceId,
+      runtimeCellId: accountCell.runtimeCellId,
+      protocol: "hermes-json-rpc-2.0",
+      wsUrl: wsUrl.toString(),
+    };
+  });
+
+  app.get("/internal/gateway/ws", { websocket: true }, (socket, request) => {
+    const query = request.query as { ticket?: string };
+    const claims = query.ticket ? gatewayTickets.get(query.ticket) : null;
+    if (query.ticket) gatewayTickets.delete(query.ticket);
+    if (!claims || claims.expiresAt <= Date.now()) {
+      socket.close(4401, "invalid_or_expired_cell_ticket");
+      return;
+    }
+
+    const pending: Array<{ data: RawData; binary: boolean; bytes: number }> = [];
+    let pendingBytes = 0;
+    let closed = false;
+    let upstream: WebSocket | null = null;
+    const closeBoth = (code: number, reason: string) => {
+      if (closed) return;
+      closed = true;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close(code, reason);
+      if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
+        upstream.close(code, reason);
+      }
+    };
+    const bytes = (data: RawData) => Buffer.isBuffer(data)
+      ? data.byteLength
+      : Array.isArray(data)
+        ? data.reduce((total, chunk) => total + chunk.byteLength, 0)
+        : data.byteLength;
+
+    socket.on("message", (data, binary) => {
+      if (closed) return;
+      if (upstream?.readyState === WebSocket.OPEN) {
+        upstream.send(data, { binary });
+        return;
+      }
+      const frameBytes = bytes(data);
+      if (pending.length >= 64 || pendingBytes + frameBytes > 1024 * 1024) {
+        closeBoth(4408, "cell_bridge_buffer_limit");
+        return;
+      }
+      pending.push({ data, binary, bytes: frameBytes });
+      pendingBytes += frameBytes;
+    });
+    socket.on("close", () => closeBoth(1000, "client_closed"));
+    socket.on("error", () => closeBoth(1011, "client_connection_failed"));
+
+    upstream = new WebSocket(dashboardWebSocketUrl(claims.dashboardBaseUrl, dashboardSessionToken), {
+      maxPayload: 4 * 1024 * 1024,
+    });
+    upstream.on("open", () => {
+      for (const frame of pending.splice(0)) upstream?.send(frame.data, { binary: frame.binary });
+      pendingBytes = 0;
+    });
+    upstream.on("message", (data, binary) => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (socket.bufferedAmount > 4 * 1024 * 1024) {
+        closeBoth(1013, "cell_bridge_backpressure");
+        return;
+      }
+      socket.send(data, { binary });
+    });
+    upstream.on("error", (error) => {
+      app.log.error({ err: error, ...claims }, "Account cell dashboard WebSocket failed");
+      closeBoth(1011, "cell_dashboard_failed");
+    });
+    upstream.on("close", (code) => closeBoth(code >= 1000 && code <= 4999 ? code : 1011, "cell_dashboard_closed"));
+  });
+
+  app.post("/internal/openai-auth/device-sessions", async (request, reply) => {
+    if (!requireInternalAuthorization(request.headers.authorization)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const session = await oauthBroker.start();
+    return reply.code(session.status === "error" ? 502 : 201).send({ session });
+  });
+
+  app.get("/internal/openai-auth/device-sessions/:sessionId", async (request, reply) => {
+    if (!requireInternalAuthorization(request.headers.authorization)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const { sessionId } = request.params as { sessionId: string };
+    const session = oauthBroker.get(sessionId);
+    return session ? { session } : reply.code(404).send({ error: "OpenAI login session not found" });
+  });
+
+  app.delete("/internal/openai-auth/device-sessions/:sessionId", async (request, reply) => {
+    if (!requireInternalAuthorization(request.headers.authorization)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const { sessionId } = request.params as { sessionId: string };
+    const session = await oauthBroker.cancel(sessionId);
+    return session ? { session } : reply.code(404).send({ error: "OpenAI login session not found" });
+  });
+
+  app.get("/internal/openai-auth/account", async (request, reply) => {
+    if (!requireInternalAuthorization(request.headers.authorization)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    try {
+      return await oauthBroker.account();
+    } catch (error) {
+      return reply.code(503).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/internal/openai-auth/external-tokens", async (request, reply) => {
+    const presented = request.headers.authorization?.startsWith("Bearer ")
+      ? request.headers.authorization.slice("Bearer ".length).trim()
+      : "";
+    if (!presented || !secureEqual(presented, cellAuthorityToken)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const body = (request.body || {}) as { reason?: string; previousAccountId?: string | null };
+    if (body.reason && body.reason !== "unauthorized") {
+      return reply.code(400).send({ error: "Unsupported external auth refresh reason" });
+    }
+    try {
+      const tokens = await oauthBroker.externalAuthTokens(body.reason === "unauthorized");
+      if (body.previousAccountId && body.previousAccountId !== tokens.chatgptAccountId) {
+        return reply.code(409).send({ error: "ChatGPT account changed during external auth refresh" });
+      }
+      return tokens;
+    } catch (error) {
+      return reply.code(503).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/internal/openai-auth/logout", async (request, reply) => {
+    if (!requireInternalAuthorization(request.headers.authorization)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    await oauthBroker.logout();
+    return reply.code(204).send();
+  });
 
   app.get("/health/detailed", async () => {
     const [sessions, jobs, runs] = await Promise.all([
@@ -1282,17 +1587,29 @@ async function main(): Promise<void> {
     const input = textFromChatMessages(body.messages || []);
     const latestInput = latestChatMessageText(body.messages || []) || input;
     if (baseUrl) {
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
+      const upstreamHeaders = ensureIdempotencyKey(
+        {
           ...authHeaders(),
           "content-type": "application/json",
           accept: body.stream ? "text/event-stream" : "application/json",
           ...forwardedHermesHeaders(request.headers),
           ...(sessionKey ? { "x-hermes-session-key": sessionKey } : {}),
         },
-        body: JSON.stringify(request.body || {}),
-      });
+        { route: "v1.chat.completions", sessionId: requestedSessionId, body: request.body || {} },
+      );
+      let response: Response;
+      try {
+        response = await fetchWithRetry(`${baseUrl}/v1/chat/completions`, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: JSON.stringify(request.body || {}),
+        });
+      } catch (error) {
+        return reply.code(502).send({
+          error: "hermes_upstream_unavailable",
+          message: fetchErrorMessage(error),
+        });
+      }
       applyHermesEchoHeaders(reply, response.headers, sessionKey, requestedSessionId);
       if (body.stream) {
         reply.hijack();
@@ -1322,15 +1639,28 @@ async function main(): Promise<void> {
         return reply.code(response.status).send(text ? JSON.parse(text) : {});
       }
       const output = text ? JSON.parse(text) : {};
+      const assistantText = textFromChatCompletionResponse(output);
+      const runtimeFailure = hermesRuntimeFailure(output, assistantText);
+      if (runtimeFailure) {
+        return reply.code(502).send({
+          error: "hermes_upstream_completion_failed",
+          message: runtimeFailure,
+          upstream: output,
+        });
+      }
+      if (!assistantText.trim()) {
+        return reply.code(502).send({
+          error: "empty_assistant_content",
+          message: "Hermes chat completions returned an empty assistant message.",
+          upstream: output,
+        });
+      }
       if (requestedSessionId) {
         const session = await ensureChatCompletionSession(requestedSessionId, latestInput || input);
         if (latestInput) {
           await appendSessionMessage(session, "user", latestInput);
         }
-        const assistantText = textFromChatCompletionResponse(output);
-        if (assistantText) {
-          await appendSessionMessage(session, "assistant", assistantText);
-        }
+        await appendSessionMessage(session, "assistant", assistantText);
       }
       return output;
     }
@@ -1845,7 +2175,7 @@ async function main(): Promise<void> {
     return reply.code(201).send(session);
   });
 
-  app.get("/api/sessions/:sessionId", async (request) => {
+  app.get("/api/sessions/:sessionId", async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
     const localSession = await readSession(sessionId).catch(() => null);
     if (localSession) {
@@ -1858,8 +2188,7 @@ async function main(): Promise<void> {
       });
     }
 
-    const { messages, ...session } = await readSession(sessionId);
-    return { ...session, message_count: messages.length };
+    return reply.code(404).send({ error: "Session not found", session_id: sessionId });
   });
 
   app.patch("/api/sessions/:sessionId", async (request) => {
@@ -1916,7 +2245,7 @@ async function main(): Promise<void> {
     return { id: sessionId, deleted: true };
   });
 
-  app.get("/api/sessions/:sessionId/messages", async (request) => {
+  app.get("/api/sessions/:sessionId/messages", async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
     const localSession = await readSession(sessionId).catch(() => null);
     if (localSession) {
@@ -1928,8 +2257,7 @@ async function main(): Promise<void> {
       });
     }
 
-    const session = await readSession(sessionId);
-    return { session_id: session.id, messages: session.messages };
+    return reply.code(404).send({ error: "Session not found", session_id: sessionId, messages: [] });
   });
 
   app.post("/api/sessions/:sessionId/fork", async (request, reply) => {
@@ -1970,25 +2298,98 @@ async function main(): Promise<void> {
   });
 
   app.post("/api/sessions/:sessionId/chat", async (request, reply) => {
-    const { sessionId } = request.params as { sessionId: string };
-    if (baseUrl) {
-      return proxyJson(baseUrl, `/api/sessions/${encodeURIComponent(sessionId)}/chat`, {
-        method: "POST",
-        headers: forwardedHermesHeaders(request.headers),
-        body: JSON.stringify(request.body || {}),
-      });
-    }
-
-    const body = request.body as { input?: string; content?: unknown };
-    const unsupported = unsupportedContentType(body.content || body.input || "");
+    const { sessionId: rawSessionId } = request.params as { sessionId: string };
+    const sessionId = validateSessionId(rawSessionId) || rawSessionId;
+    const sessionKey = validateSessionKey(headerValue(request.headers["x-hermes-session-key"]));
+    const body = request.body as { input?: string; content?: unknown; model?: string };
+    const input = typeof body.input === "string" ? body.input : textFromChatContent(body.content);
+    const unsupported = unsupportedContentType(body.content || input || "");
     if (unsupported) {
       return reply.code(400).send({ error: unsupported });
     }
-    const session = await readSession(sessionId);
-    await appendSessionMessage(session, "user", body.input || "");
-    const output = managedAssistantText(body.input || "");
+
+    const session =
+      (await readSession(sessionId).catch(() => null)) ||
+      (await createSession({
+        id: sessionId,
+        title: sessionTitleFromInput(input || ""),
+        source: "termes-chat",
+      }));
+    if (input) {
+      await appendSessionMessage(session, "user", input);
+    }
+
+    if (baseUrl) {
+      const upstreamBody = {
+        model: body.model || process.env.HERMES_MODEL || "hermes-agent",
+        messages: [{ role: "user", content: input }],
+      };
+      const upstreamHeaders = ensureIdempotencyKey(
+        {
+          ...authHeaders(),
+          "content-type": "application/json",
+          accept: "application/json",
+          ...forwardedHermesHeaders(request.headers),
+          "x-hermes-session-id": sessionId,
+          ...(sessionKey ? { "x-hermes-session-key": sessionKey } : {}),
+        },
+        { route: "session.chat", sessionId, body: upstreamBody },
+      );
+      let response: Response;
+      try {
+        response = await fetchWithRetry(`${baseUrl}/v1/chat/completions`, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: JSON.stringify(upstreamBody),
+        });
+      } catch (error) {
+        return reply.code(502).send({
+          error: "hermes_upstream_unavailable",
+          message: fetchErrorMessage(error),
+        });
+      }
+      applyHermesEchoHeaders(reply, response.headers, sessionKey, sessionId);
+      const text = await response.text();
+      const output = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+      if (!response.ok) {
+        return reply.code(response.status).send(output);
+      }
+
+      const assistantText = textFromChatCompletionResponse(output);
+      const runtimeFailure = hermesRuntimeFailure(output, assistantText);
+      if (runtimeFailure) {
+        return reply.code(502).send({
+          error: "hermes_upstream_completion_failed",
+          message: runtimeFailure,
+          upstream: output,
+        });
+      }
+      if (!assistantText.trim()) {
+        return reply.code(502).send({
+          error: "empty_assistant_content",
+          message: "Hermes chat completions returned an empty assistant message.",
+          upstream: output,
+        });
+      }
+
+      const assistant = await appendSessionMessage(session, "assistant", assistantText);
+      return {
+        object: "hermes.session.chat.completion",
+        session_id: sessionId,
+        message: { role: assistant.role, content: assistant.content },
+        output: assistant.content,
+        status: "completed",
+        usage:
+          output.usage && typeof output.usage === "object"
+            ? output.usage
+            : openAiUsage(input, assistant.content),
+      };
+    }
+
+    const output = managedAssistantText(input || "");
     const assistant = await appendSessionMessage(session, "assistant", output);
     return {
+      object: "hermes.session.chat.completion",
       session_id: sessionId,
       message: assistant,
       output,
@@ -1997,24 +2398,67 @@ async function main(): Promise<void> {
   });
 
   app.post("/api/sessions/:sessionId/chat/stream", async (request, reply) => {
-    const { sessionId } = request.params as { sessionId: string };
+    const { sessionId: rawSessionId } = request.params as { sessionId: string };
+    const sessionId = validateSessionId(rawSessionId) || rawSessionId;
+    const sessionKey = validateSessionKey(headerValue(request.headers["x-hermes-session-key"]));
+    const body = request.body as { input?: string; content?: unknown; model?: string };
+    const input = typeof body.input === "string" ? body.input : textFromChatContent(body.content);
+    const unsupported = unsupportedContentType(body.content || input || "");
+    if (unsupported) {
+      return reply.code(400).send({ error: unsupported });
+    }
+
+    const session =
+      (await readSession(sessionId).catch(() => null)) ||
+      (await createSession({
+        id: sessionId,
+        title: sessionTitleFromInput(input || ""),
+        source: "termes-chat",
+      }));
+    if (input) {
+      await appendSessionMessage(session, "user", input);
+    }
+
     if (baseUrl) {
-      const response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`, {
-        method: "POST",
-        headers: {
+      const upstreamBody = {
+        model: body.model || process.env.HERMES_MODEL || "hermes-agent",
+        stream: true,
+        messages: [{ role: "user", content: input }],
+      };
+      const upstreamHeaders = ensureIdempotencyKey(
+        {
           ...authHeaders(),
-          ...forwardedHermesHeaders(request.headers),
           "content-type": "application/json",
           accept: "text/event-stream",
+          ...forwardedHermesHeaders(request.headers),
+          "x-hermes-session-id": sessionId,
+          ...(sessionKey ? { "x-hermes-session-key": sessionKey } : {}),
         },
-        body: JSON.stringify(request.body || {}),
-      });
+        { route: "session.chat.stream", sessionId, body: upstreamBody },
+      );
+      let response: Response;
+      try {
+        response = await fetchWithRetry(`${baseUrl}/v1/chat/completions`, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: JSON.stringify(upstreamBody),
+        });
+      } catch (error) {
+        return reply.code(502).send({
+          error: "hermes_upstream_unavailable",
+          message: fetchErrorMessage(error),
+        });
+      }
       reply.hijack();
       reply.raw.writeHead(response.status, {
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
         "content-type": "text/event-stream",
         "x-accel-buffering": "no",
+        "x-hermes-session-id": response.headers.get("x-hermes-session-id") || sessionId,
+        ...(response.headers.get("x-hermes-session-key") || sessionKey
+          ? { "x-hermes-session-key": (response.headers.get("x-hermes-session-key") || sessionKey) as string }
+          : {}),
       });
       if (response.body) {
         for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
@@ -2025,14 +2469,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    const body = request.body as { input?: string; content?: unknown };
-    const unsupported = unsupportedContentType(body.content || body.input || "");
-    if (unsupported) {
-      return reply.code(400).send({ error: unsupported });
-    }
-    const session = await readSession(sessionId);
-    await appendSessionMessage(session, "user", body.input || "");
-    const output = managedAssistantText(body.input || "");
+    const output = managedAssistantText(input || "");
     const assistant = await appendSessionMessage(session, "assistant", output);
     reply.hijack();
     reply.raw.writeHead(200, {

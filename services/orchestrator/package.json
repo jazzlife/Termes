@@ -9,13 +9,16 @@
     "start": "node dist/main.cjs"
   },
   "dependencies": {
+    "@termes/eventing": "workspace:*",
     "@termes/shared": "workspace:*",
     "fastify": "^5.4.0",
     "ioredis": "^5.6.1",
-    "pg": "^8.16.2"
+    "pg": "^8.16.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/pg": "^8.15.4",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"
   }
 }

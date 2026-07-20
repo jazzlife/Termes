@@ -1,0 +1,24 @@
+#!/command/with-contenv sh
+set -eu
+
+codex_home="${CODEX_HOME:-/opt/data/.codex}"
+
+case "$codex_home" in
+    /opt/data/.codex) ;;
+    *)
+        echo "[termes-codex-home] refusing unexpected CODEX_HOME: $codex_home" >&2
+        exit 1
+        ;;
+esac
+
+if [ -L "$codex_home" ]; then
+    echo "[termes-codex-home] refusing symlinked CODEX_HOME: $codex_home" >&2
+    exit 1
+fi
+
+mkdir -p "$codex_home"
+chown -R hermes:hermes "$codex_home"
+chmod 0700 "$codex_home"
+if [ -f "$codex_home/auth.json" ]; then
+    chmod 0600 "$codex_home/auth.json"
+fi
