@@ -353,7 +353,7 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
             </button>
           ) : (
             <button className="mobileBrandButton" type="button" aria-label="프로젝트 목록 열기" onClick={() => setProjectDrawerOpen(true)}>
-              <img src="/termes-icon-launcher-v2-192.png" alt="" />
+              <img src="/termes-icon-launcher-v3-192.png" alt="" />
             </button>
           )}
           <div className="mobileHeaderTitle">

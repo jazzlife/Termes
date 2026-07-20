@@ -100,23 +100,21 @@
 
 .mobileBrandButton {
   display: inline-flex;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 11px;
-  background: var(--termes-primary, #2563eb);
-  overflow: hidden;
+  background: transparent;
 }
 
 .mobileBrandButton img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .mobileHeaderTitle {

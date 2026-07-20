@@ -33,59 +33,70 @@ test("Termes Web은 standalone 설치 요건과 필수 아이콘을 제공한다
   assert.equal(manifest.launch_handler, undefined);
   assert.ok(
     manifest.icons?.some(
-      (icon) => icon.src === "/termes-icon-launcher-v2-192.png" && icon.sizes === "192x192" && icon.purpose === "any"
+      (icon) => icon.src === "/termes-icon-launcher-v3-192.png" && icon.sizes === "192x192" && icon.purpose === "any"
     )
   );
   assert.ok(
     manifest.icons?.some(
-      (icon) => icon.src === "/termes-icon-launcher-v2-512.png" && icon.sizes === "512x512" && icon.purpose === "any"
+      (icon) => icon.src === "/termes-icon-launcher-v3-512.png" && icon.sizes === "512x512" && icon.purpose === "any"
     )
   );
   assert.ok(
     manifest.icons?.some(
-      (icon) => icon.src === "/termes-icon-maskable-v2-192.png" && icon.sizes === "192x192" && icon.purpose === "maskable"
+      (icon) => icon.src === "/termes-icon-maskable-v3-192.png" && icon.sizes === "192x192" && icon.purpose === "maskable"
     )
   );
   assert.ok(
     manifest.icons?.some(
-      (icon) => icon.src === "/termes-icon-maskable-v2-512.png" && icon.sizes === "512x512" && icon.purpose === "maskable"
+      (icon) => icon.src === "/termes-icon-maskable-v3-512.png" && icon.sizes === "512x512" && icon.purpose === "maskable"
     )
   );
   assert.match(indexHtml, /rel="manifest" href="\/manifest\.webmanifest"/);
-  assert.match(indexHtml, /rel="icon" href="\/termes-icon-launcher-v2-192\.png"/);
-  assert.match(indexHtml, /rel="apple-touch-icon" href="\/termes-apple-touch-icon-v2\.png"/);
+  assert.match(indexHtml, /rel="icon" href="\/termes-icon-launcher-v3-192\.png"/);
+  assert.match(indexHtml, /rel="apple-touch-icon" href="\/termes-apple-touch-icon-v3\.png"/);
   assert.match(indexHtml, /apple-mobile-web-app-capable/);
-  assert.match(serviceWorker, /\/termes-icon-maskable-v2-192\.png/);
-  assert.match(serviceWorker, /\/termes-icon-maskable-v2-512\.png/);
+  assert.match(serviceWorker, /\/termes-icon-maskable-v3-192\.png/);
+  assert.match(serviceWorker, /\/termes-icon-maskable-v3-512\.png/);
   assert.match(nginxConfig, /default_type application\/manifest\+json/);
 });
 
 test("일반, Android maskable, Apple 아이콘은 용도별 크기와 투명도를 지킨다", () => {
-  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-launcher-v2-192.png"), {
+  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-launcher-v3-192.png"), {
     width: 192,
     height: 192,
     hasAlpha: true
   });
-  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-launcher-v2-512.png"), {
+  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-launcher-v3-512.png"), {
     width: 512,
     height: 512,
     hasAlpha: true
   });
-  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-maskable-v2-192.png"), {
+  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-maskable-v3-192.png"), {
     width: 192,
     height: 192,
-    hasAlpha: false
+    hasAlpha: true
   });
-  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-maskable-v2-512.png"), {
+  assert.deepEqual(readPngMetadata("apps/web/public/termes-icon-maskable-v3-512.png"), {
     width: 512,
     height: 512,
-    hasAlpha: false
+    hasAlpha: true
   });
-  assert.deepEqual(readPngMetadata("apps/web/public/termes-apple-touch-icon-v2.png"), {
+  assert.deepEqual(readPngMetadata("apps/web/public/termes-apple-touch-icon-v3.png"), {
     width: 180,
     height: 180,
-    hasAlpha: false
+    hasAlpha: true
   });
+});
+
+test("모바일 프로젝트 드로어 로고는 배경 없이 크게 표시한다", () => {
+  const brandButtonBlock = mobileCss.match(/\.mobileBrandButton \{([\s\S]*?)\n\}/)?.[1] || "";
+  const brandImageBlock = mobileCss.match(/\.mobileBrandButton img \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.match(mobileExperience, /termes-icon-launcher-v3-192\.png/);
+  assert.match(brandButtonBlock, /width: 44px/);
+  assert.match(brandButtonBlock, /height: 44px/);
+  assert.match(brandButtonBlock, /background: transparent/);
+  assert.doesNotMatch(brandButtonBlock, /border-radius/);
+  assert.match(brandImageBlock, /object-fit: contain/);
 });
 
 test("OctOP과 같은 설치 이벤트와 standalone 실행 모드를 앱 UI에 연결한다", () => {

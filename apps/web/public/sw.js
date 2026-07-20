@@ -6,11 +6,11 @@ const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
   "/termes-favicon-32.png",
-  "/termes-icon-launcher-v2-192.png",
-  "/termes-icon-launcher-v2-512.png",
-  "/termes-icon-maskable-v2-192.png",
-  "/termes-icon-maskable-v2-512.png",
-  "/termes-apple-touch-icon-v2.png"
+  "/termes-icon-launcher-v3-192.png",
+  "/termes-icon-launcher-v3-512.png",
+  "/termes-icon-maskable-v3-192.png",
+  "/termes-icon-maskable-v3-512.png",
+  "/termes-apple-touch-icon-v3.png"
 ];
 
 function isRuntimeRequest(url) {
