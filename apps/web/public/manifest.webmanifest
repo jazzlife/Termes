@@ -1,0 +1,39 @@
+{
+  "id": "/",
+  "name": "Termes",
+  "short_name": "Termes",
+  "description": "전문 에이전트 협업을 중심으로 동작하는 Termes 모바일 작업공간",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0D1016",
+  "theme_color": "#0D1016",
+  "lang": "ko-KR",
+  "icons": [
+    {
+      "src": "/termes-icon-launcher-v2-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/termes-icon-launcher-v2-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/termes-icon-maskable-v2-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/termes-icon-maskable-v2-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

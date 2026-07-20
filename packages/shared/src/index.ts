@@ -29,17 +29,62 @@ export const eventTypes = [
   "agent.command.started",
   "agent.command.completed",
   "agent.file.changed",
+  "hermes.projection.updated",
   "checkpoint.created",
   "approval.requested",
   "approval.approved",
   "approval.rejected",
   "chat.message.created",
   "chat.message.completed",
+  "task.turn.requested",
+  "routing.started",
+  "routing.ready",
+  "routing.decided",
+  "routing.failed",
+  "execution.direct.started",
+  "execution.specialists.planned",
+  "execution.escalated",
+  "task.turn.completed",
+  "task.turn.failed",
+  "task.plan.created",
+  "task.plan.step.started",
+  "task.plan.step.completed",
+  "task.plan.step.failed",
+  "device.command.created",
+  "device.command.queued",
+  "device.command.running",
+  "device.command.completed",
+  "device.command.failed",
+  "device.command.blocked",
+  "verification.created",
   "task.completed",
   "task.failed",
 ] as const;
 
 export type EventType = (typeof eventTypes)[number];
+
+export const devicePlatforms = ["android", "tizen", "linux", "windows", "local_mock"] as const;
+export type DevicePlatform = (typeof devicePlatforms)[number];
+
+export const deviceTransports = ["adb", "sdb", "ssh", "winrm", "local_mock"] as const;
+export type DeviceTransport = (typeof deviceTransports)[number];
+
+export const deviceStatuses = ["unknown", "offline", "online", "busy", "error"] as const;
+export type DeviceStatus = (typeof deviceStatuses)[number];
+
+export const deviceCommandStatuses = [
+  "created",
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+  "blocked",
+] as const;
+export type DeviceCommandStatus = (typeof deviceCommandStatuses)[number];
+
+export const verificationStatuses = ["passed", "failed", "warning", "unknown"] as const;
+export type VerificationStatus = (typeof verificationStatuses)[number];
 
 export interface HealthReport {
   service: string;
@@ -73,6 +118,7 @@ export interface GitHubConnectionSummary {
   profileUrl: string | null;
   linkedAt: string | null;
   oauthConfigured: boolean;
+  browserOAuthEnabled: boolean;
   deviceConfigured: boolean;
   callbackUrl: string;
 }
@@ -129,12 +175,140 @@ export interface TaskSummary {
   updatedAt: string;
 }
 
+export type RouteIntent = "conversation" | "question" | "analysis" | "implementation" | "operation" | "destructive" | "control";
+export type ExecutionRoute = "system-control" | "instant" | "direct" | "single-specialist" | "parallel-specialists" | "critical-synthesis" | "clarification";
+export type TaskTurnStatus = "requested" | "routing" | "routed" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+
+export interface SemanticFrameSummary {
+  action: "converse" | "read" | "analyze" | "implement" | "operate" | "delete" | "control" | "clarify";
+  target: "project.identity" | "workspace.identity" | "system.status" | "code" | "runtime" | "data" | "security" | "product" | "research" | "general" | "unknown";
+  scope: "current-turn" | "recent-summary" | "project-state" | "system-context";
+  requiresMutation: boolean;
+  requiresInspection: boolean;
+  primaryDomain: string;
+  secondaryDomains: string[];
+  riskSignals: string[];
+  reasonCodes: string[];
+}
+
+export interface RouteDecisionSummary {
+  intent: RouteIntent;
+  route: ExecutionRoute;
+  primaryDomain: string;
+  secondaryDomains: string[];
+  riskSignals: string[];
+  evidenceRequirement: "none" | "context" | "tool" | "independent-review";
+  contextRequirement: "current-turn" | "recent-summary" | "project-state";
+  reasonCodes: string[];
+  source: "deterministic-policy" | "routing-specialist";
+  routingDurationMs: number;
+  semanticFrame?: SemanticFrameSummary;
+}
+
+export interface TaskTurnSummary {
+  id: string;
+  taskId: string;
+  userMessageId: string;
+  status: TaskTurnStatus;
+  failureCode: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  decision: RouteDecisionSummary | null;
+}
+
 export interface PlatformEvent<TPayload extends Record<string, unknown> = Record<string, unknown>> {
   id: string;
   projectId: string | null;
   taskId: string | null;
   type: EventType;
   payload: TPayload;
+  createdAt: string;
+}
+
+export interface DeviceSummary {
+  id: string;
+  projectId: string;
+  key: string;
+  name: string;
+  platform: DevicePlatform;
+  transport: DeviceTransport;
+  endpoint: string | null;
+  labels: Record<string, string>;
+  status: DeviceStatus;
+  lastSeenAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeviceCommandSummary {
+  id: string;
+  projectId: string;
+  taskId: string | null;
+  deviceId: string;
+  action: string;
+  params: Record<string, unknown>;
+  status: DeviceCommandStatus;
+  approvalId: string | null;
+  stdout: string | null;
+  stderr: string | null;
+  exitCode: number | null;
+  artifactUri: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeviceCommandLogSummary {
+  commandId: string;
+  stdout: string;
+  stderr: string;
+  artifactUri: string | null;
+}
+
+export interface CapabilityPackageSummary {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  platforms: DevicePlatform[];
+  actions: string[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskPlanStepSummary {
+  id: string;
+  type: "hermes.run" | "runner.run" | "device.command" | "approval.required" | "verification.check";
+  title: string;
+  status: "created" | "running" | "completed" | "failed" | "blocked";
+  capabilityKey: string | null;
+  deviceCommandId: string | null;
+  verificationResultId: string | null;
+  order: number;
+}
+
+export interface TaskPlanSummary {
+  id: string;
+  taskId: string;
+  selectedCapabilities: string[];
+  steps: TaskPlanStepSummary[];
+  status: "created" | "running" | "completed" | "failed" | "blocked";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VerificationResultSummary {
+  id: string;
+  projectId: string | null;
+  taskId: string | null;
+  deviceCommandId: string | null;
+  kind: string;
+  status: VerificationStatus;
+  confidence: number;
+  summary: string;
+  metadata: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -166,6 +340,7 @@ export interface RuntimeSessionSummary {
   taskId: string;
   runtimeProfileId: string | null;
   hermesSessionId: string | null;
+  hermesLiveSessionId: string | null;
   hermesRunId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -209,14 +384,73 @@ export interface ArtifactSummary {
   createdAt: string;
 }
 
+export interface SpecialistAssignmentSummary {
+  id: string;
+  key: string;
+  role: string;
+  mission: string;
+  toolsets: string[];
+  required: boolean;
+  status: "planned" | "running" | "completed" | "failed" | "cancelled";
+  hermesSubagentId: string | null;
+  resultSummary: string | null;
+}
+
+export interface OrchestrationBlueprintSummary {
+  id: string;
+  domain: "software" | "security" | "operations" | "data" | "research" | "product" | "general";
+  secondaryDomains: string[];
+  weight: "light" | "standard" | "heavy" | "critical";
+  riskSignals: string[];
+  collaboration: "direct" | "parallel-review" | "parallel-synthesis";
+  requireEvidence: boolean;
+  requireIndependentReview: boolean;
+  status: "planned" | "delegating" | "synthesizing" | "verified" | "failed";
+  specialists: SpecialistAssignmentSummary[];
+}
+
+export type HermesProjectionPartSummary =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
+  | {
+      type: "tool-call";
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      result?: Record<string, unknown>;
+      isError?: boolean;
+    };
+
+export type HermesPendingInteractionSummary =
+  | { type: "clarify"; requestId: string; question: string; choices: string[] | null }
+  | { type: "approval"; command: string; description: string; allowPermanent: boolean }
+  | { type: "sudo"; requestId: string }
+  | { type: "secret"; requestId: string; envVar: string; prompt: string };
+
+export interface HermesSessionProjectionSummary {
+  sessionId: string;
+  parts: HermesProjectionPartSummary[];
+  pending: boolean;
+  busy: boolean;
+  needsInput: boolean;
+  interaction: HermesPendingInteractionSummary | null;
+  error: string | null;
+  updatedAt: string;
+}
+
 export interface TaskRuntimeSummary {
   task: TaskSummary;
   messages: ChatMessageSummary[];
+  turns?: TaskTurnSummary[];
   sessions: RuntimeSessionSummary[];
   runs: AgentRunSummary[];
   checkpoints: CheckpointSummary[];
   artifacts: ArtifactSummary[];
   events: PlatformEvent[];
+  taskPlan?: TaskPlanSummary | null;
+  verificationResults?: VerificationResultSummary[];
+  orchestration?: OrchestrationBlueprintSummary | null;
+  hermesProjection?: HermesSessionProjectionSummary | null;
 }
 
 export interface HermesCapabilitySummary {
@@ -313,4 +547,44 @@ export function assertTaskStatus(value: string): TaskStatus {
   }
 
   throw new Error(`Unsupported task status: ${value}`);
+}
+
+export function assertDevicePlatform(value: string): DevicePlatform {
+  if (devicePlatforms.includes(value as DevicePlatform)) {
+    return value as DevicePlatform;
+  }
+
+  throw new Error(`Unsupported device platform: ${value}`);
+}
+
+export function assertDeviceTransport(value: string): DeviceTransport {
+  if (deviceTransports.includes(value as DeviceTransport)) {
+    return value as DeviceTransport;
+  }
+
+  throw new Error(`Unsupported device transport: ${value}`);
+}
+
+export function assertDeviceStatus(value: string): DeviceStatus {
+  if (deviceStatuses.includes(value as DeviceStatus)) {
+    return value as DeviceStatus;
+  }
+
+  throw new Error(`Unsupported device status: ${value}`);
+}
+
+export function assertDeviceCommandStatus(value: string): DeviceCommandStatus {
+  if (deviceCommandStatuses.includes(value as DeviceCommandStatus)) {
+    return value as DeviceCommandStatus;
+  }
+
+  throw new Error(`Unsupported device command status: ${value}`);
+}
+
+export function assertVerificationStatus(value: string): VerificationStatus {
+  if (verificationStatuses.includes(value as VerificationStatus)) {
+    return value as VerificationStatus;
+  }
+
+  throw new Error(`Unsupported verification status: ${value}`);
 }

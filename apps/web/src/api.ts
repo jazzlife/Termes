@@ -15,13 +15,95 @@ import type {
   ProjectFolderSummary,
   ProjectSummary,
   ChatMessageSummary,
+  CapabilityPackageSummary,
+  DeviceCommandLogSummary,
+  DeviceCommandSummary,
+  DevicePlatform,
+  DeviceSummary,
+  DeviceTransport,
   TaskRuntimeSummary,
+  TaskPlanSummary,
   TaskSummary,
+  VerificationResultSummary,
 } from "@termes/shared";
 
 export interface HermesStreamEvent {
   event: string;
   data: unknown;
+}
+
+export interface TermesAccountOption {
+  accountId: string;
+  displayName: string;
+  workspaceKey: string;
+}
+
+export interface TermesAccountPrincipal extends TermesAccountOption {
+  workspaceId: string;
+  runtimeCellId: string;
+  email: string;
+  workspaceRoot: string;
+  canManageSharedOAuth: boolean;
+}
+
+export async function fetchTermesAccounts(): Promise<TermesAccountOption[]> {
+  const response = await fetch("/api/account-auth/accounts");
+  const body = await response.json() as { accounts?: TermesAccountOption[]; error?: string };
+  if (!response.ok || !body.accounts) throw new Error(body.error || `Account list failed: ${response.status}`);
+  return body.accounts;
+}
+
+export async function fetchTermesSession(): Promise<TermesAccountPrincipal | null> {
+  const response = await fetch("/api/account-auth/session");
+  const body = await response.json() as { principal?: TermesAccountPrincipal | null; error?: string };
+  if (!response.ok) throw new Error(body.error || `Account session failed: ${response.status}`);
+  return body.principal || null;
+}
+
+export async function loginTermesAccount(accountId: string, accessCode: string): Promise<TermesAccountPrincipal> {
+  const response = await fetch("/api/account-auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ accountId, accessCode }),
+  });
+  const body = await response.json() as { principal?: TermesAccountPrincipal; error?: string };
+  if (!response.ok || !body.principal) throw new Error(body.error || `Account login failed: ${response.status}`);
+  return body.principal;
+}
+
+export async function logoutTermesAccount(): Promise<void> {
+  const response = await fetch("/api/account-auth/session", { method: "DELETE" });
+  if (!response.ok && response.status !== 204) throw new Error(`Account logout failed: ${response.status}`);
+}
+
+export interface CodexOAuthDeviceSession {
+  id: string;
+  status: "starting" | "awaiting_user" | "complete" | "error" | "expired" | "cancelled";
+  verificationUrl: string | null;
+  userCode: string | null;
+  error: string | null;
+  expiresAt: string;
+}
+
+export async function fetchOpenAiAccount(): Promise<Record<string, unknown>> {
+  const response = await fetch("/api/openai-auth/account");
+  const body = await response.json() as Record<string, unknown>;
+  if (!response.ok) throw new Error(String(body.error || `OpenAI account read failed: ${response.status}`));
+  return body;
+}
+
+export async function startCodexOAuthLogin(): Promise<CodexOAuthDeviceSession> {
+  const response = await fetch("/api/openai-auth/device-sessions", { method: "POST" });
+  const body = await response.json() as { session?: CodexOAuthDeviceSession; error?: string };
+  if (!response.ok || !body.session) throw new Error(body.error || `Codex OAuth start failed: ${response.status}`);
+  return body.session;
+}
+
+export async function pollCodexOAuthLogin(sessionId: string): Promise<CodexOAuthDeviceSession> {
+  const response = await fetch(`/api/openai-auth/device-sessions/${encodeURIComponent(sessionId)}`);
+  const body = await response.json() as { session?: CodexOAuthDeviceSession; error?: string };
+  if (!response.ok || !body.session) throw new Error(body.error || `Codex OAuth poll failed: ${response.status}`);
+  return body.session;
 }
 
 export interface GitHubCloneResult {
@@ -122,7 +204,14 @@ export async function pollGitHubDeviceLogin(sessionId: string): Promise<GitHubDe
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Failed to poll GitHub device login: ${response.status}`);
+    let message = text;
+    try {
+      const body = JSON.parse(text) as { error?: string };
+      message = body.error || text;
+    } catch {
+      message = text;
+    }
+    throw new Error(message || `Failed to poll GitHub device login: ${response.status}`);
   }
   return (await response.json()) as GitHubDeviceLoginPollSummary;
 }
@@ -332,11 +421,34 @@ export async function sendTaskMessage(taskId: string, content: string): Promise<
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to send task message: ${response.status}`);
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Failed to send task message: ${response.status}${detail ? ` ${detail}` : ""}`);
   }
 
   const data = (await response.json()) as { messages: ChatMessageSummary[] };
   return data.messages;
+}
+
+export type HermesInteractionResponse =
+  | { type: "approval"; choice: "once" | "session" | "always" | "deny" }
+  | { type: "clarify"; requestId: string; answer: string }
+  | { type: "sudo"; requestId: string; password: string }
+  | { type: "secret"; requestId: string; value: string };
+
+export async function respondHermesInteraction(
+  taskId: string,
+  input: HermesInteractionResponse,
+): Promise<{ status: "ok"; resolved?: number }> {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/hermes-interactions/respond`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await response.json().catch(() => ({})) as { status?: "ok"; resolved?: number; error?: string };
+  if (!response.ok || body.status !== "ok") {
+    throw new Error(body.error || `Hermes interaction response failed: ${response.status}`);
+  }
+  return { status: body.status, ...(body.resolved === undefined ? {} : { resolved: body.resolved }) };
 }
 
 export async function fetchHermesCapabilities(): Promise<HermesCapabilitySummary> {
@@ -346,6 +458,160 @@ export async function fetchHermesCapabilities(): Promise<HermesCapabilitySummary
   }
 
   return (await response.json()) as HermesCapabilitySummary;
+}
+
+export async function fetchDevices(projectId?: string): Promise<DeviceSummary[]> {
+  const params = new URLSearchParams();
+  if (projectId) {
+    params.set("projectId", projectId);
+  }
+  const response = await fetch(`/api/devices${params.size > 0 ? `?${params}` : ""}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch devices: ${response.status}`);
+  }
+  const data = (await response.json()) as { devices: DeviceSummary[] };
+  return data.devices;
+}
+
+export async function discoverDevices(projectId?: string): Promise<DeviceSummary[]> {
+  const response = await fetch("/api/devices/discover", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(projectId ? { projectId } : {}),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to discover devices: ${response.status}`);
+  }
+  const data = (await response.json()) as { devices: DeviceSummary[] };
+  return data.devices;
+}
+
+export async function createDevice(input: {
+  projectId?: string;
+  key?: string;
+  name: string;
+  platform: DevicePlatform;
+  transport: DeviceTransport;
+  endpoint?: string | null;
+  labels?: Record<string, string>;
+  status?: string;
+}): Promise<DeviceSummary> {
+  const response = await fetch("/api/devices", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to create device: ${response.status}`);
+  }
+  const data = (await response.json()) as { device: DeviceSummary };
+  return data.device;
+}
+
+export async function updateDevice(
+  deviceId: string,
+  input: {
+    name?: string;
+    transport?: DeviceTransport;
+    endpoint?: string | null;
+    labels?: Record<string, string>;
+    status?: string;
+  },
+): Promise<DeviceSummary> {
+  const response = await fetch(`/api/devices/${deviceId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to update device: ${response.status}`);
+  }
+  const data = (await response.json()) as { device: DeviceSummary };
+  return data.device;
+}
+
+export async function deleteDevice(deviceId: string): Promise<void> {
+  const response = await fetch(`/api/devices/${deviceId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to delete device: ${response.status}`);
+  }
+}
+
+export async function runDeviceCommand(
+  deviceId: string,
+  input: {
+    taskId?: string | null;
+    action: string;
+    params?: Record<string, unknown>;
+    timeoutMs?: number;
+  },
+): Promise<{ command: DeviceCommandSummary; verificationResult?: VerificationResultSummary }> {
+  const response = await fetch(`/api/devices/${deviceId}/commands`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to run device command: ${response.status}`);
+  }
+  return (await response.json()) as { command: DeviceCommandSummary; verificationResult?: VerificationResultSummary };
+}
+
+export async function fetchDeviceCommand(commandId: string): Promise<DeviceCommandSummary> {
+  const response = await fetch(`/api/device-commands/${commandId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch device command: ${response.status}`);
+  }
+  const data = (await response.json()) as { command: DeviceCommandSummary };
+  return data.command;
+}
+
+export async function fetchDeviceCommandLogs(commandId: string): Promise<DeviceCommandLogSummary> {
+  const response = await fetch(`/api/device-commands/${commandId}/logs`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch device command logs: ${response.status}`);
+  }
+  return (await response.json()) as DeviceCommandLogSummary;
+}
+
+export async function fetchCapabilities(): Promise<CapabilityPackageSummary[]> {
+  const response = await fetch("/api/capabilities");
+  if (!response.ok) {
+    throw new Error(`Failed to fetch capabilities: ${response.status}`);
+  }
+  const data = (await response.json()) as { capabilities: CapabilityPackageSummary[] };
+  return data.capabilities;
+}
+
+export async function fetchTaskPlan(taskId: string): Promise<TaskPlanSummary | null> {
+  const response = await fetch(`/api/tasks/${taskId}/plan`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch task plan: ${response.status}`);
+  }
+  const data = (await response.json()) as { taskPlan: TaskPlanSummary | null };
+  return data.taskPlan;
+}
+
+export async function fetchVerificationResults(taskId: string): Promise<VerificationResultSummary[]> {
+  const response = await fetch(`/api/tasks/${taskId}/verification-results`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch verification results: ${response.status}`);
+  }
+  const data = (await response.json()) as { verificationResults: VerificationResultSummary[] };
+  return data.verificationResults;
 }
 
 async function hermesGet<T>(path: string): Promise<T> {
@@ -506,16 +772,20 @@ function listData(value: unknown): unknown[] {
   return [];
 }
 
-export async function fetchHermesCatalog(): Promise<HermesCatalogSummary> {
-  const [capabilities, profiles, models, skills, toolsets, sessions, jobs] = await Promise.all([
+export async function fetchHermesCatalog(includeGlobalAdminState = true): Promise<HermesCatalogSummary> {
+  const [capabilities, models, skills, toolsets] = await Promise.all([
     fetchHermesCapabilities(),
-    hermesGet<HermesProfilesResponse>("/profiles"),
     hermesGet<HermesModelsResponse>("/v1/models"),
     hermesGet<unknown>("/v1/skills"),
     hermesGet<unknown>("/v1/toolsets"),
-    hermesGet<HermesListResponse>("/api/sessions"),
-    hermesGet<HermesListResponse>("/api/jobs"),
   ]);
+  const [profiles, sessions, jobs] = includeGlobalAdminState
+    ? await Promise.all([
+        hermesGet<HermesProfilesResponse>("/profiles"),
+        hermesGet<HermesListResponse>("/api/sessions"),
+        hermesGet<HermesListResponse>("/api/jobs"),
+      ])
+    : [{ profiles: [] }, { sessions: [] }, { jobs: [] }];
 
   return {
     capabilities,
@@ -738,12 +1008,24 @@ export function connectEvents(onEvent: (event: PlatformEvent) => void): EventSou
     "agent.command.started",
     "agent.command.completed",
     "agent.file.changed",
+    "hermes.projection.updated",
     "checkpoint.created",
     "approval.requested",
     "approval.approved",
     "approval.rejected",
     "chat.message.created",
     "chat.message.completed",
+    "task.plan.created",
+    "task.plan.step.started",
+    "task.plan.step.completed",
+    "task.plan.step.failed",
+    "device.command.created",
+    "device.command.queued",
+    "device.command.running",
+    "device.command.completed",
+    "device.command.failed",
+    "device.command.blocked",
+    "verification.created",
     "task.completed",
     "task.failed",
   ];

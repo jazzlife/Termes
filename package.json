@@ -7,15 +7,19 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "lint": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --if-present test && node --test tests/hermes-compat/*.test.mjs && node --import tsx --test tests/account-auth/*.test.ts tests/eventing/*.test.ts tests/hermes-compat/*.test.ts tests/hermes-projector/*.test.ts tests/hermes-realtime/*.test.ts tests/orchestrator/*.test.ts tests/web/*.test.ts",
+    "hermes:sync": "node scripts/hermes-compat-sync.mjs",
     "test:hermes": "node scripts/hermes-smoke.mjs",
     "test:hermes:official": "node scripts/hermes-smoke.mjs --require-upstream",
+    "test:devices": "node scripts/device-gateway-smoke.mjs",
     "doctor:hermes:upstream": "sh scripts/hermes-upstream-doctor.sh",
-    "compose:config": "docker compose -f infra/compose/docker-compose.yml config"
+    "compose:config": "docker compose --env-file infra/compose/.env.example -f infra/compose/docker-compose.yml config"
   },
   "devDependencies": {
     "@types/node": "^22.15.32",
     "esbuild": "^0.25.5",
-    "typescript": "^5.8.3"
+    "tsx": "^4.23.0",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.3"
   }
 }

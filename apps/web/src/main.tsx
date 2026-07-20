@@ -1,6 +1,5 @@
 import {
   Activity,
-  Bell,
   Bot,
   CheckCircle2,
   CircleAlert,
@@ -13,9 +12,11 @@ import {
   GitBranch,
   History,
   Loader2,
+  LogOut,
   Menu,
   Mic,
   MicOff,
+  Moon,
   MessageSquare,
   PanelRight,
   Pencil,
@@ -28,6 +29,7 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  Sun,
   Terminal,
   Trash2,
   UserCircle2,
@@ -35,9 +37,17 @@ import {
   X,
 } from "lucide-react";
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
+import remarkGfm from "remark-gfm";
 import type {
+  CapabilityPackageSummary,
+  DeviceCommandSummary,
+  DevicePlatform,
+  DeviceStatus,
+  DeviceSummary,
+  DeviceTransport,
   EventType,
   GitHubConnectionSummary,
   GitHubDeviceLoginStartSummary,
@@ -50,12 +60,15 @@ import type {
   ProjectFolderSummary,
   ProjectSummary,
   ChatMessageSummary,
+  TaskPlanSummary,
   TaskRuntimeSummary,
   TaskSummary,
+  VerificationResultSummary,
 } from "@termes/shared";
 import {
   connectEvents,
   cloneGitHubRepository,
+  createDevice,
   createHermesChatCompletion,
   createHermesJob,
   createHermesProfile,
@@ -65,13 +78,18 @@ import {
   createProject,
   createProjectFolder,
   createTask,
+  deleteDevice,
   deleteProject,
   deleteHermesJob,
   deleteHermesProfile,
   deleteHermesResponse,
   deleteHermesSession,
   deleteTask,
+  discoverDevices,
   disconnectGitHub,
+  fetchCapabilities,
+  fetchDeviceCommandLogs,
+  fetchDevices,
   fetchGitHubRepositories,
   fetchGitHubStatus,
   fetchHermesCatalog,
@@ -80,23 +98,38 @@ import {
   fetchProjectFolders,
   fetchHermesRun,
   fetchHermesUpstreamDiagnostics,
+  fetchOpenAiAccount,
+  fetchTermesAccounts,
+  fetchTermesSession,
   fetchProjects,
+  fetchTaskPlan,
   fetchTaskRuntime,
   fetchTasks,
+  fetchVerificationResults,
   forkHermesSession,
   pauseHermesJob,
   pollGitHubDeviceLogin,
+  pollCodexOAuthLogin,
+  loginTermesAccount,
+  logoutTermesAccount,
   resolveHermesApproval,
   resumeHermesJob,
+  runDeviceCommand,
   runHermesJob,
   startGitHubDeviceLogin,
+  startCodexOAuthLogin,
   registerProjectFolder,
+  respondHermesInteraction,
   sendTaskMessage,
   sendHermesSessionChat,
   stopHermesRun,
   streamHermesChatCompletion,
+  updateDevice,
   type GitHubCloneResult,
   type HermesStreamEvent,
+  type CodexOAuthDeviceSession,
+  type TermesAccountOption,
+  type TermesAccountPrincipal,
   streamHermesResponse,
   streamHermesRunEvents,
   streamHermesSessionChat,
@@ -105,6 +138,20 @@ import {
   updateProject,
   updateTask,
 } from "./api";
+import { HermesRealtimeClient } from "./hermes-realtime-client";
+import { resolveExistingSelectionId } from "./selection-state";
+import { readExperienceEnvironment, resolveExperience, type ExperienceKind } from "./app/experience";
+import { readStoredTheme, resolveTheme, THEME_STORAGE_KEY, type ThemeMode } from "./app/theme";
+import { MobileExperience, type MobileScreen } from "./experiences/mobile/MobileExperience";
+import {
+  bootstrapTermesPwa,
+  dismissTermesPwaInstallPrompt,
+  isIosPwaInstallCandidate,
+  isTermesPwaInstallPromptDismissed,
+  isTermesPwaStandalone,
+  type TermesBeforeInstallPromptEvent,
+  type TermesPwaInstallMode,
+} from "./pwa";
 import "./styles.css";
 
 type WorkbenchTab = "diff" | "terminal" | "files" | "logs" | "hermes";
@@ -130,6 +177,130 @@ const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
   { id: "logs", label: "Logs" },
   { id: "hermes", label: "Hermes" },
 ];
+
+function isRenderableChatMessage(message: ChatMessageSummary): boolean {
+  return (message.role === "user" || message.role === "assistant") && message.content.trim().length > 0;
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  return (
+    <div className="markdownMessage">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer">{children}</a>,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+const devicePlatforms: DevicePlatform[] = ["local_mock", "windows", "linux", "android", "tizen"];
+const deviceStatusFilters: Array<DeviceStatus | "all"> = ["all", "online", "unknown", "busy", "offline", "error"];
+
+function devicePlatformLabel(platform: DevicePlatform): string {
+  const labels: Record<DevicePlatform, string> = {
+    local_mock: "Local",
+    windows: "Windows",
+    linux: "Linux",
+    android: "Android",
+    tizen: "Tizen",
+  };
+  return labels[platform];
+}
+
+function transportOptions(platform: DevicePlatform): DeviceTransport[] {
+  const options: Record<DevicePlatform, DeviceTransport[]> = {
+    local_mock: ["local_mock"],
+    windows: ["winrm", "ssh"],
+    linux: ["ssh"],
+    android: ["adb"],
+    tizen: ["sdb"],
+  };
+  return options[platform];
+}
+
+function defaultActionForPlatform(platform: DevicePlatform): string {
+  const actions: Record<DevicePlatform, string> = {
+    local_mock: "local_mock.echo",
+    windows: "windows.system.info",
+    linux: "linux.system.info",
+    android: "android.system.info",
+    tizen: "tizen.system.info",
+  };
+  return actions[platform];
+}
+
+function quickActionsForPlatform(platform: DevicePlatform): string[] {
+  const actions: Record<DevicePlatform, string[]> = {
+    local_mock: ["local_mock.echo", "local_mock.health", "local_mock.fail", "local_mock.sleep"],
+    windows: ["windows.system.info", "windows.service.status", "windows.eventlog.query", "windows.powershell"],
+    linux: ["linux.system.info", "linux.service.status", "linux.journal.query", "linux.shell"],
+    android: ["android.system.info", "android.logcat", "android.shell"],
+    tizen: ["tizen.system.info", "tizen.dlog", "tizen.shell"],
+  };
+  return actions[platform];
+}
+
+function defaultParamsForAction(action: string): string {
+  if (action === "local_mock.echo") {
+    return JSON.stringify({ payload: "hello from Termes" }, null, 2);
+  }
+  if (action === "local_mock.sleep") {
+    return JSON.stringify({ ms: 250 }, null, 2);
+  }
+  if (action.endsWith(".service.status")) {
+    return JSON.stringify({ service: "ssh" }, null, 2);
+  }
+  if (action === "linux.journal.query") {
+    return JSON.stringify({ unit: "ssh", lines: 80 }, null, 2);
+  }
+  if (action === "windows.eventlog.query") {
+    return JSON.stringify({ logName: "System", maxEvents: 20 }, null, 2);
+  }
+  if (action === "android.logcat" || action === "tizen.dlog") {
+    return JSON.stringify({ lines: 80 }, null, 2);
+  }
+  if (action.endsWith(".shell") || action.endsWith(".powershell")) {
+    return JSON.stringify({ command: "echo Termes" }, null, 2);
+  }
+  return "{}";
+}
+
+function dangerousDeviceCommandReason(action: string, paramsText: string): string | null {
+  const joined = `${action} ${paramsText}`.toLowerCase();
+  const patterns = [
+    "rm -rf /",
+    "mkfs",
+    "dd if=",
+    "format-volume",
+    "remove-item -recurse c:\\",
+    "clear-eventlog",
+    "stop-computer",
+    "restart-computer",
+    "shutdown",
+    "reboot",
+    "diskpart",
+    "bcdedit",
+  ];
+  const match = patterns.find((pattern) => joined.includes(pattern));
+  return match ? `Blocked dangerous command pattern: ${match}` : null;
+}
+
+function deviceActionRequiresApproval(action: string): boolean {
+  return (
+    action === "linux.service.restart" ||
+    action === "windows.service.restart" ||
+    action.startsWith("windows.app.install") ||
+    action === "windows.app.uninstall" ||
+    action === "android.install" ||
+    action === "android.uninstall" ||
+    action === "tizen.install" ||
+    action === "tizen.uninstall"
+  );
+}
 
 const fileTree = [
   "apps/web/src/main.tsx",
@@ -171,6 +342,38 @@ function eventTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function eventDateTime(value: string | null): string {
+  if (!value) {
+    return "never";
+  }
+  return new Date(value).toLocaleString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function commandDuration(command: DeviceCommandSummary): string {
+  if (!command.startedAt || !command.completedAt) {
+    return "n/a";
+  }
+  const durationMs = Date.parse(command.completedAt) - Date.parse(command.startedAt);
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return "n/a";
+  }
+  return `${durationMs}ms`;
+}
+
+function commandOutputText(command: DeviceCommandSummary): string {
+  const stdout = command.stdout || "";
+  const stderr = command.stderr || "";
+  if (!stdout && !stderr) {
+    return "no output";
+  }
+  return [`stdout:\n${stdout || "(empty)"}`, `stderr:\n${stderr || "(empty)"}`].join("\n\n");
 }
 
 function deriveTitleFromPrompt(value: string): string {
@@ -355,11 +558,35 @@ function firstId(value: unknown, listKey: "sessions" | "jobs", idKeys: string[])
 }
 
 function App(): JSX.Element {
+  const [accountOptions, setAccountOptions] = useState<TermesAccountOption[]>([]);
+  const [accountPrincipal, setAccountPrincipal] = useState<TermesAccountPrincipal | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [accountAccessCode, setAccountAccessCode] = useState("");
+  const [accountAuthLoading, setAccountAuthLoading] = useState(true);
+  const [accountAuthBusy, setAccountAuthBusy] = useState(false);
+  const [accountAuthError, setAccountAuthError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [taskRuntime, setTaskRuntime] = useState<TaskRuntimeSummary | null>(null);
   const [hermesCapabilities, setHermesCapabilities] = useState<HermesCapabilitySummary | null>(null);
+  const [capabilityPackages, setCapabilityPackages] = useState<CapabilityPackageSummary[]>([]);
+  const [devices, setDevices] = useState<DeviceSummary[]>([]);
+  const [taskPlan, setTaskPlan] = useState<TaskPlanSummary | null>(null);
+  const [verificationResults, setVerificationResults] = useState<VerificationResultSummary[]>([]);
+  const [devicesPanelOpen, setDevicesPanelOpen] = useState(false);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [devicePlatform, setDevicePlatform] = useState<DevicePlatform>("local_mock");
+  const [deviceTransport, setDeviceTransport] = useState<DeviceTransport>("local_mock");
+  const [deviceStatusFilter, setDeviceStatusFilter] = useState<DeviceStatus | "all">("all");
+  const [deviceName, setDeviceName] = useState("Local Mock Device");
+  const [deviceEndpoint, setDeviceEndpoint] = useState("");
+  const [deviceAction, setDeviceAction] = useState("local_mock.echo");
+  const [deviceParamsText, setDeviceParamsText] = useState(defaultParamsForAction("local_mock.echo"));
+  const [deviceBusy, setDeviceBusy] = useState(false);
+  const [deviceMessage, setDeviceMessage] = useState("local_mock으로 외부 장치 없이 command 경로를 검증할 수 있습니다.");
+  const [lastDeviceCommand, setLastDeviceCommand] = useState<DeviceCommandSummary | null>(null);
+  const [lastDeviceVerification, setLastDeviceVerification] = useState<VerificationResultSummary | null>(null);
   const [hermesCatalog, setHermesCatalog] = useState<HermesCatalogSummary | null>(null);
   const [hermesRun, setHermesRun] = useState<HermesRunSummary | null>(null);
   const [hermesUpstreamDiagnostics, setHermesUpstreamDiagnostics] = useState<HermesUpstreamDiagnostics | null>(null);
@@ -369,6 +596,8 @@ function App(): JSX.Element {
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [interactionInput, setInteractionInput] = useState("");
+  const [interactionSending, setInteractionSending] = useState(false);
   const [projectPanelOpen, setProjectPanelOpen] = useState(false);
   const [projectCreateMode, setProjectCreateMode] = useState<"folder" | "github">("folder");
   const [projectName, setProjectName] = useState("");
@@ -394,18 +623,137 @@ function App(): JSX.Element {
   const [lastHermesProfileName, setLastHermesProfileName] = useState<string | null>(null);
   const [hermesStreamEvents, setHermesStreamEvents] = useState<string[]>([]);
   const [hermesAuditResults, setHermesAuditResults] = useState<string[]>([]);
+  const [hermesRpcMethod, setHermesRpcMethod] = useState("session.list");
+  const [hermesRpcParams, setHermesRpcParams] = useState('{"limit": 20}');
+  const [hermesRpcResult, setHermesRpcResult] = useState("아직 실행하지 않았습니다.");
+  const [hermesRpcBusy, setHermesRpcBusy] = useState(false);
+  const [openAiConnected, setOpenAiConnected] = useState(false);
+  const [codexOAuthSession, setCodexOAuthSession] = useState<CodexOAuthDeviceSession | null>(null);
+  const [newTaskMode, setNewTaskMode] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(readStoredTheme);
+  const [pwaStandalone, setPwaStandalone] = useState(isTermesPwaStandalone);
+  const [pwaInstalled, setPwaInstalled] = useState(isTermesPwaStandalone);
+  const [pwaInstallMode, setPwaInstallMode] = useState<TermesPwaInstallMode | null>(() => {
+    if (isTermesPwaStandalone()) return null;
+    return isIosPwaInstallCandidate() ? "ios" : "manual";
+  });
+  const [deferredPwaInstallPrompt, setDeferredPwaInstallPrompt] = useState<TermesBeforeInstallPromptEvent | null>(null);
+  const [pwaInstallBannerVisible, setPwaInstallBannerVisible] = useState(
+    () => !isTermesPwaStandalone() && !isTermesPwaInstallPromptDismissed(),
+  );
+  const [pwaInstallBusy, setPwaInstallBusy] = useState(false);
+  const [pwaInstallHelpVisible, setPwaInstallHelpVisible] = useState(false);
+  const [experience, setExperience] = useState<ExperienceKind>(() => resolveExperience(readExperienceEnvironment()));
+  const [openAiAuthBusy, setOpenAiAuthBusy] = useState(false);
+  const [openAiAuthMessage, setOpenAiAuthMessage] = useState("OpenAI 계정 연결 상태를 확인하는 중입니다.");
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTab>("diff");
   const [mobileView, setMobileView] = useState<MobileView>("list");
+  const [mobileScreen, setMobileScreen] = useState<MobileScreen>("tasks");
   const [searchOpen, setSearchOpen] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const selectedProjectIdRef = useRef("");
   const selectedTaskIdRef = useRef("");
+  const listRefreshGenerationRef = useRef(0);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const projectDrawerRef = useRef<HTMLElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const latestChatMessageRef = useRef<HTMLDivElement | null>(null);
+  const hermesRpcClientRef = useRef<HermesRealtimeClient | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const resolved = resolveTheme(theme, media.matches);
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.dataset.themeMode = theme;
+      document.documentElement.style.colorScheme = resolved;
+    };
+    applyTheme();
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [theme]);
+
+  useEffect(() => {
+    const displayMode = window.matchMedia("(display-mode: standalone)");
+    const syncDisplayMode = () => {
+      const standalone = isTermesPwaStandalone();
+      setPwaStandalone(standalone);
+      if (standalone) setPwaInstalled(true);
+      document.documentElement.dataset.pwaDisplayMode = standalone ? "standalone" : "browser";
+    };
+    const handleBeforeInstallPrompt = (event: Event) => {
+      const promptEvent = event as TermesBeforeInstallPromptEvent;
+      if (typeof promptEvent.prompt !== "function") return;
+      promptEvent.preventDefault();
+      setDeferredPwaInstallPrompt(promptEvent);
+      setPwaInstallMode("native");
+      if (!isTermesPwaInstallPromptDismissed()) setPwaInstallBannerVisible(true);
+    };
+    const handleAppInstalled = () => {
+      setPwaInstalled(true);
+      setDeferredPwaInstallPrompt(null);
+      setPwaInstallMode(null);
+      setPwaInstallBannerVisible(false);
+      setPwaInstallHelpVisible(false);
+    };
+
+    syncDisplayMode();
+    if (!isTermesPwaStandalone() && isIosPwaInstallCandidate()) {
+      setPwaInstallMode("ios");
+      if (!isTermesPwaInstallPromptDismissed()) setPwaInstallBannerVisible(true);
+    }
+    displayMode.addEventListener("change", syncDisplayMode);
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    return () => {
+      displayMode.removeEventListener("change", syncDisplayMode);
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  useEffect(() => {
+    const finePointer = window.matchMedia("(pointer: fine)");
+    const hover = window.matchMedia("(hover: hover)");
+    const updateExperience = () => setExperience(resolveExperience(readExperienceEnvironment()));
+    updateExperience();
+    finePointer.addEventListener("change", updateExperience);
+    hover.addEventListener("change", updateExperience);
+    window.addEventListener("resize", updateExperience);
+    return () => {
+      finePointer.removeEventListener("change", updateExperience);
+      hover.removeEventListener("change", updateExperience);
+      window.removeEventListener("resize", updateExperience);
+    };
+  }, []);
+
+  useEffect(() => {
+    hermesRpcClientRef.current?.close();
+    hermesRpcClientRef.current = null;
+    setHermesRpcResult("현재 Account/Task scope에 연결할 준비가 됐습니다.");
+    return () => {
+      hermesRpcClientRef.current?.close();
+      hermesRpcClientRef.current = null;
+    };
+  }, [accountPrincipal?.accountId, selectedProjectId, selectedTaskId]);
+
+  useEffect(() => {
+    Promise.all([fetchTermesAccounts(), fetchTermesSession()])
+      .then(([accounts, principal]) => {
+        setAccountOptions(accounts);
+        setAccountPrincipal(principal);
+        setSelectedAccountId(principal?.accountId || accounts[0]?.accountId || "");
+      })
+      .catch((cause: unknown) => {
+        setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => setAccountAuthLoading(false));
+  }, []);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) || projects[0],
@@ -416,6 +764,27 @@ function App(): JSX.Element {
     () => tasks.find((task) => task.id === selectedTaskId) || tasks[0],
     [tasks, selectedTaskId],
   );
+
+  const filteredDevicesForPanel = useMemo(
+    () =>
+      devices.filter(
+        (device) =>
+          device.platform === devicePlatform && (deviceStatusFilter === "all" || device.status === deviceStatusFilter),
+      ),
+    [devices, devicePlatform, deviceStatusFilter],
+  );
+  const selectedDevice = useMemo(() => {
+    const explicitDevice = devices.find((device) => device.id === selectedDeviceId);
+    if (
+      explicitDevice?.platform === devicePlatform &&
+      (deviceStatusFilter === "all" || explicitDevice.status === deviceStatusFilter)
+    ) {
+      return explicitDevice;
+    }
+    return filteredDevicesForPanel[0] || null;
+  }, [devices, filteredDevicesForPanel, devicePlatform, deviceStatusFilter, selectedDeviceId]);
+  const deviceCommandBlockedReason = dangerousDeviceCommandReason(deviceAction, deviceParamsText);
+  const deviceCommandNeedsApproval = deviceActionRequiresApproval(deviceAction);
 
   const selectedTaskEvents = useMemo(
     () => events.filter((event) => !selectedTask || event.taskId === selectedTask.id),
@@ -439,8 +808,25 @@ function App(): JSX.Element {
   const latestSession = runtimeMatchesSelected ? taskRuntime?.sessions[0] || null : null;
   const latestCheckpoint = runtimeMatchesSelected ? taskRuntime?.checkpoints[0] || null : null;
   const latestArtifact = runtimeMatchesSelected ? taskRuntime?.artifacts[0] || null : null;
+  const orchestration = runtimeMatchesSelected ? taskRuntime?.orchestration || null : null;
+  const latestTurn = runtimeMatchesSelected ? taskRuntime?.turns?.at(-1) || null : null;
+  const hermesProjection = runtimeMatchesSelected ? taskRuntime?.hermesProjection || null : null;
+  const showLiveHermesProjection = Boolean(
+    hermesProjection && (hermesProjection.pending || hermesProjection.busy || hermesProjection.needsInput),
+  );
+  const pendingHermesInteraction = hermesProjection?.interaction ?? null;
+  const pendingHermesInteractionKey = pendingHermesInteraction
+    ? pendingHermesInteraction.type === "approval"
+      ? `approval:${hermesProjection?.sessionId || ""}:${pendingHermesInteraction.command}`
+      : `${pendingHermesInteraction.type}:${pendingHermesInteraction.requestId}`
+    : "";
   const displayedTaskEvents = runtimeMatchesSelected ? taskRuntime?.events || [] : selectedTaskEvents;
   const displayedMessages: ChatMessageSummary[] = runtimeMatchesSelected ? taskRuntime?.messages || [] : [];
+  const displayedChatMessages = useMemo(
+    () => displayedMessages.filter(isRenderableChatMessage),
+    [displayedMessages],
+  );
+  const latestDisplayedMessageId = displayedChatMessages[displayedChatMessages.length - 1]?.id || "";
   const runnerConfigured = Boolean(hermesCapabilities?.manager.runnerConfigured);
   const upstreamStatus = hermesCapabilities?.manager.upstreamStatus || "checking";
   const upstreamError = hermesCapabilities?.manager.upstreamError;
@@ -473,30 +859,47 @@ function App(): JSX.Element {
   }, [githubRepositoryGroups, githubSearch]);
   const githubConnected = githubStatus?.connected === true;
 
-  async function refresh(projectId = selectedProject?.id, taskId = selectedTask?.id): Promise<void> {
-    const nextProjects = await fetchProjects();
-    const nextProjectId = projectId || nextProjects[0]?.id || "";
-    const nextTasks = await fetchTasks(nextProjectId || undefined);
-    const nextSelectedTask =
-      nextTasks.find((task) => task.id === taskId) || nextTasks[0] || null;
-
-    setProjects(nextProjects);
-    setSelectedProjectId(nextProjectId);
-    setTasks(nextTasks);
-    setSelectedTaskId(nextSelectedTask?.id || "");
+  function selectProjectState(projectId: string): void {
+    selectedProjectIdRef.current = projectId;
+    setSelectedProjectId(projectId);
   }
 
-  async function refreshTaskList(projectId = selectedProject?.id): Promise<void> {
+  function selectTaskState(taskId: string): void {
+    selectedTaskIdRef.current = taskId;
+    setSelectedTaskId(taskId);
+  }
+
+  async function refresh(projectId?: string, taskId?: string): Promise<void> {
+    const generation = ++listRefreshGenerationRef.current;
     const nextProjects = await fetchProjects();
-    const nextProjectId = projectId || nextProjects[0]?.id || "";
-    const nextTasks = await fetchTasks(nextProjectId || undefined);
+    const requestedProjectId = projectId ?? selectedProjectIdRef.current;
+    const nextProjectId = resolveExistingSelectionId(nextProjects, requestedProjectId);
+    const nextTasks = nextProjectId ? await fetchTasks(nextProjectId) : [];
+    const requestedTaskId = taskId ?? selectedTaskIdRef.current;
+    const nextTaskId = resolveExistingSelectionId(nextTasks, requestedTaskId);
+
+    if (generation !== listRefreshGenerationRef.current) return;
 
     setProjects(nextProjects);
-    setSelectedProjectId(nextProjectId);
+    selectProjectState(nextProjectId);
     setTasks(nextTasks);
-    setSelectedTaskId((current) =>
-      current && nextTasks.some((task) => task.id === current) ? current : nextTasks[0]?.id || "",
-    );
+    selectTaskState(nextTaskId);
+  }
+
+  async function refreshTaskList(projectId?: string): Promise<void> {
+    const generation = ++listRefreshGenerationRef.current;
+    const nextProjects = await fetchProjects();
+    const requestedProjectId = projectId ?? selectedProjectIdRef.current;
+    const nextProjectId = resolveExistingSelectionId(nextProjects, requestedProjectId);
+    const nextTasks = nextProjectId ? await fetchTasks(nextProjectId) : [];
+    const nextTaskId = resolveExistingSelectionId(nextTasks, selectedTaskIdRef.current);
+
+    if (generation !== listRefreshGenerationRef.current) return;
+
+    setProjects(nextProjects);
+    selectProjectState(nextProjectId);
+    setTasks(nextTasks);
+    selectTaskState(nextTaskId);
   }
 
   async function refreshRuntime(taskId = selectedTask?.id): Promise<void> {
@@ -506,10 +909,12 @@ function App(): JSX.Element {
     ]);
     setHermesCapabilities(capabilities);
     setTaskRuntime(runtime);
+    setTaskPlan(runtime?.taskPlan || null);
+    setVerificationResults(runtime?.verificationResults || []);
     const runId = runtime?.sessions[0]?.hermesRunId;
     if (runId) {
       const fallbackRun = runtime?.runs[0] || null;
-      const run = await fetchHermesRun(runId).catch(() => {
+      const syntheticRun = (): HermesRunSummary => {
         const syntheticRun: HermesRunSummary = {
           object: "hermes.run",
           run_id: runId,
@@ -526,11 +931,53 @@ function App(): JSX.Element {
           syntheticRun.updated_at = fallbackRun.updatedAt;
         }
         return syntheticRun;
-      });
+      };
+      const run = runId.startsWith("jsonrpc-")
+        ? syntheticRun()
+        : await fetchHermesRun(runId).catch(syntheticRun);
       setHermesRun(run);
     } else {
       setHermesRun(null);
     }
+  }
+
+  async function refreshDevices(projectId = selectedProject?.id): Promise<void> {
+    const [nextDevices, nextCapabilities] = await Promise.all([
+      fetchDevices(projectId),
+      fetchCapabilities(),
+    ]);
+    setDevices(nextDevices);
+    setCapabilityPackages(nextCapabilities);
+    setSelectedDeviceId((current) => {
+      const currentDevice = nextDevices.find((device) => device.id === current);
+      if (
+        currentDevice?.platform === devicePlatform &&
+        (deviceStatusFilter === "all" || currentDevice.status === deviceStatusFilter)
+      ) {
+        return current;
+      }
+      return (
+        nextDevices.find(
+          (device) =>
+            device.platform === devicePlatform &&
+            (deviceStatusFilter === "all" || device.status === deviceStatusFilter),
+        )?.id || ""
+      );
+    });
+  }
+
+  async function refreshPlan(taskId = selectedTask?.id): Promise<void> {
+    if (!taskId) {
+      setTaskPlan(null);
+      setVerificationResults([]);
+      return;
+    }
+    const [nextPlan, nextVerificationResults] = await Promise.all([
+      fetchTaskPlan(taskId),
+      fetchVerificationResults(taskId),
+    ]);
+    setTaskPlan(nextPlan);
+    setVerificationResults(nextVerificationResults);
   }
 
   async function loadProjectFolders(): Promise<void> {
@@ -547,8 +994,10 @@ function App(): JSX.Element {
       if (!status.connected) {
         setGithubRepositoryGroups([]);
         setGithubMessage(
-          status.oauthConfigured
-            ? `GitHub App callback URL: ${status.callbackUrl}`
+          status.deviceConfigured
+            ? status.browserOAuthEnabled
+              ? `Device 코드와 Browser OAuth를 사용할 수 있습니다. Callback URL: ${status.callbackUrl}`
+              : `Device 코드 로그인을 사용할 수 있습니다. Browser OAuth는 callback 등록 후 서버에서 활성화해야 합니다: ${status.callbackUrl}`
             : "GitHub OAuth 설정이 필요합니다. 서버 .env에 GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET_ENC를 설정해 주세요.",
         );
         return;
@@ -562,6 +1011,183 @@ function App(): JSX.Element {
     } finally {
       setGithubBusy(false);
     }
+  }
+
+  function handleDevicePlatformChange(platform: DevicePlatform): void {
+    const nextTransport = transportOptions(platform)[0] || "local_mock";
+    const nextAction = defaultActionForPlatform(platform);
+    const nextDevice = devices.find(
+      (device) => device.platform === platform && (deviceStatusFilter === "all" || device.status === deviceStatusFilter),
+    );
+    setDevicePlatform(platform);
+    setDeviceTransport(nextTransport);
+    setSelectedDeviceId(nextDevice?.id || "");
+    setDeviceAction(nextAction);
+    setDeviceParamsText(defaultParamsForAction(nextAction));
+    setDeviceName(platform === "local_mock" ? "Local Mock Device" : `${devicePlatformLabel(platform)} Device`);
+    setDeviceEndpoint("");
+    setLastDeviceCommand(null);
+    setLastDeviceVerification(null);
+  }
+
+  async function handleDiscoverDevices(): Promise<void> {
+    if (!selectedProject) {
+      setDeviceMessage("프로젝트를 먼저 선택해 주세요.");
+      return;
+    }
+    setDeviceBusy(true);
+    setDeviceMessage("device-gateway에서 장치를 검색하는 중입니다.");
+    try {
+      const discovered = await discoverDevices(selectedProject.id);
+      setDevices(discovered);
+      setSelectedDeviceId(
+        discovered.find(
+          (device) =>
+            device.platform === devicePlatform &&
+            (deviceStatusFilter === "all" || device.status === deviceStatusFilter),
+        )?.id || "",
+      );
+      setDeviceMessage(`${discovered.length}개 장치를 동기화했습니다.`);
+    } catch (cause) {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
+
+  async function handleRegisterDevice(): Promise<void> {
+    if (!selectedProject) {
+      setDeviceMessage("프로젝트를 먼저 선택해 주세요.");
+      return;
+    }
+    const name = deviceName.trim();
+    if (!name) {
+      setDeviceMessage("장치 이름을 입력해 주세요.");
+      return;
+    }
+    setDeviceBusy(true);
+    setDeviceMessage(`${name} 장치를 등록하는 중입니다.`);
+    try {
+      const device = await createDevice({
+        projectId: selectedProject.id,
+        name,
+        platform: devicePlatform,
+        transport: deviceTransport,
+        endpoint: deviceEndpoint.trim() || null,
+        labels: { source: "mobile-pwa" },
+        status: devicePlatform === "local_mock" ? "online" : "unknown",
+      });
+      await refreshDevices(selectedProject.id);
+      setSelectedDeviceId(device.id);
+      setDeviceMessage(`${device.name} 장치를 등록했습니다.`);
+    } catch (cause) {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
+
+  async function handleUpdateSelectedDevice(): Promise<void> {
+    if (!selectedDevice) {
+      setDeviceMessage("수정할 장치를 선택해 주세요.");
+      return;
+    }
+    const name = deviceName.trim();
+    if (!name) {
+      setDeviceMessage("장치 이름을 입력해 주세요.");
+      return;
+    }
+
+    setDeviceBusy(true);
+    setDeviceMessage(`${selectedDevice.name} 장치를 저장하는 중입니다.`);
+    try {
+      const updated = await updateDevice(selectedDevice.id, {
+        name,
+        transport: deviceTransport,
+        endpoint: deviceEndpoint.trim() || null,
+        labels: selectedDevice.labels,
+        status: selectedDevice.status,
+      });
+      await refreshDevices(selectedProject?.id);
+      setSelectedDeviceId(updated.id);
+      setDeviceMessage(`${updated.name} 장치를 저장했습니다.`);
+    } catch (cause) {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
+
+  async function handleDeleteSelectedDevice(): Promise<void> {
+    if (!selectedDevice) {
+      setDeviceMessage("삭제할 장치를 선택해 주세요.");
+      return;
+    }
+    const confirmed = window.confirm(`${selectedDevice.name} 장치를 삭제할까요? 관련 command 이력은 보존됩니다.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeviceBusy(true);
+    setDeviceMessage(`${selectedDevice.name} 장치를 삭제하는 중입니다.`);
+    try {
+      await deleteDevice(selectedDevice.id);
+      setSelectedDeviceId("");
+      setLastDeviceCommand(null);
+      setLastDeviceVerification(null);
+      await refreshDevices(selectedProject?.id);
+      setDeviceMessage(`${selectedDevice.name} 장치를 삭제했습니다.`);
+    } catch (cause) {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
+
+  async function handleRunDeviceCommand(): Promise<void> {
+    if (!selectedDevice) {
+      setDeviceMessage("명령을 실행할 장치를 선택해 주세요.");
+      return;
+    }
+    let params: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(deviceParamsText || "{}") as unknown;
+      params = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch (cause) {
+      setDeviceMessage(cause instanceof Error ? cause.message : "params JSON을 확인해 주세요.");
+      return;
+    }
+
+    setDeviceBusy(true);
+    setDeviceMessage(`${deviceAction} 명령을 실행하는 중입니다.`);
+    try {
+      const result = await runDeviceCommand(selectedDevice.id, {
+        taskId: selectedTask?.id || null,
+        action: deviceAction,
+        params,
+      });
+      setLastDeviceCommand(result.command);
+      setLastDeviceVerification(result.verificationResult || null);
+      setDeviceMessage(`${result.command.action} ${result.command.status}`);
+      await refreshDevices(selectedProject?.id);
+      if (selectedTask?.id) {
+        await refreshRuntime(selectedTask.id);
+        await refreshPlan(selectedTask.id);
+      }
+    } catch (cause) {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
+
+  async function handleCopyDeviceLogs(): Promise<void> {
+    if (!lastDeviceCommand) {
+      return;
+    }
+    const logs = await fetchDeviceCommandLogs(lastDeviceCommand.id);
+    await navigator.clipboard?.writeText(`stdout:\n${logs.stdout}\n\nstderr:\n${logs.stderr}`);
+    setDeviceMessage("명령 로그를 클립보드에 복사했습니다.");
   }
 
   function openProjectDrawer(mode: "folder" | "github" = "folder"): void {
@@ -588,7 +1214,7 @@ function App(): JSX.Element {
         return;
       }
       setGithubDeviceLogin(device);
-      setGithubMessage("GitHub 승인 페이지에서 코드를 입력한 뒤 승인 완료 확인을 눌러 주세요.");
+      setGithubMessage("GitHub 승인 페이지에서 코드를 입력하면 Termes가 자동으로 연결 상태를 확인합니다.");
       navigator.clipboard?.writeText(device.userCode).catch(() => undefined);
       window.open(device.verificationUriComplete || device.verificationUri, "_blank", "noopener,noreferrer");
     } catch (cause) {
@@ -603,6 +1229,11 @@ function App(): JSX.Element {
       setGithubMessage("진행 중인 GitHub device login이 없습니다.");
       return;
     }
+    if (Date.parse(githubDeviceLogin.expiresAt) <= Date.now()) {
+      setGithubDeviceLogin(null);
+      setGithubMessage("GitHub device login 코드가 만료되었습니다. 새 코드를 발급해 주세요.");
+      return;
+    }
 
     setGithubBusy(true);
     setGithubMessage("GitHub 승인 완료 여부를 확인하는 중입니다.");
@@ -611,7 +1242,7 @@ function App(): JSX.Element {
       setGithubStatus(result.github);
       if (result.status === "pending") {
         setGithubDeviceLogin((current) => current ? { ...current, interval: result.nextInterval || current.interval } : current);
-        setGithubMessage(result.message);
+        setGithubMessage(`${result.message}. 승인 완료 후 자동으로 연결됩니다.`);
         return;
       }
       setGithubDeviceLogin(null);
@@ -705,7 +1336,10 @@ function App(): JSX.Element {
       setProjectPanelOpen(false);
       setProjectCreateMode("folder");
       setFolderMessage(`${projectFolderLabel(selectedPath)} 프로젝트를 등록했습니다.`);
-      await refresh(result.project.id);
+      selectProjectState(result.project.id);
+      selectTaskState("");
+      setTaskRuntime(null);
+      await refresh(result.project.id, "");
     } catch (cause) {
       setFolderMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -756,7 +1390,10 @@ function App(): JSX.Element {
       setProjectPanelOpen(false);
       setProjectCreateMode("folder");
       setGithubMessage(`${pendingGithubClone.path} 프로젝트를 등록했습니다.`);
-      await refresh(result.project.id);
+      selectProjectState(result.project.id);
+      selectTaskState("");
+      setTaskRuntime(null);
+      await refresh(result.project.id, "");
     } catch (cause) {
       setGithubMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -765,13 +1402,143 @@ function App(): JSX.Element {
   }
 
   async function refreshHermesCatalog(): Promise<void> {
-    const catalog = await fetchHermesCatalog();
+    const catalog = await fetchHermesCatalog(accountPrincipal?.canManageSharedOAuth === true);
     setHermesCatalog(catalog);
     setHermesCapabilities(catalog.capabilities);
     setHermesUpstreamDiagnostics(catalog.capabilities.manager.upstreamDiagnostics || null);
   }
 
+  async function refreshOpenAiAccount(): Promise<void> {
+    const account = await fetchOpenAiAccount();
+    const connected = Boolean(account.account) && account.requiresOpenaiAuth !== true;
+    setOpenAiConnected(connected);
+    setOpenAiAuthMessage(connected
+      ? "ChatGPT 계정이 Codex app-server에 연결되었습니다."
+      : "API key 없이 ChatGPT 계정 OAuth 연결이 필요합니다.");
+  }
+
+  async function handleOpenAiConnect(): Promise<void> {
+    setOpenAiAuthBusy(true);
+    try {
+      const session = await startCodexOAuthLogin();
+      setCodexOAuthSession(session);
+      setOpenAiAuthMessage("ChatGPT 계정 승인을 완료해 주세요.");
+      if (session.verificationUrl) window.open(session.verificationUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setOpenAiAuthBusy(false);
+    }
+  }
+
+  async function handleAccountLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!selectedAccountId || !accountAccessCode) return;
+    setAccountAuthBusy(true);
+    setAccountAuthError(null);
+    try {
+      const principal = await loginTermesAccount(selectedAccountId, accountAccessCode);
+      setAccountPrincipal(principal);
+      setAccountAccessCode("");
+    } catch (cause) {
+      setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setAccountAuthBusy(false);
+    }
+  }
+
+  async function handleAccountLogout(): Promise<void> {
+    setAccountAuthBusy(true);
+    setAccountAuthError(null);
+    try {
+      await logoutTermesAccount();
+      setAccountPrincipal(null);
+      setProjects([]);
+      setTasks([]);
+      setEvents([]);
+      setTaskRuntime(null);
+      listRefreshGenerationRef.current += 1;
+      selectProjectState("");
+      selectTaskState("");
+      setMobileView("list");
+    } catch (cause) {
+      setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setAccountAuthBusy(false);
+    }
+  }
+
+  function handleDismissPwaInstall(): void {
+    dismissTermesPwaInstallPrompt();
+    setPwaInstallBannerVisible(false);
+    setPwaInstallHelpVisible(false);
+  }
+
+  async function handleInstallPwa(): Promise<void> {
+    if (pwaInstallMode !== "native" && !deferredPwaInstallPrompt) {
+      setPwaInstallHelpVisible(true);
+      setPwaInstallBannerVisible(true);
+      return;
+    }
+    if (!deferredPwaInstallPrompt || pwaInstallBusy) return;
+
+    setPwaInstallBusy(true);
+    try {
+      await deferredPwaInstallPrompt.prompt();
+      const choice = await deferredPwaInstallPrompt.userChoice;
+      setPwaInstalled(choice.outcome === "accepted");
+      setDeferredPwaInstallPrompt(null);
+      setPwaInstallMode(null);
+      setPwaInstallBannerVisible(false);
+    } finally {
+      setPwaInstallBusy(false);
+    }
+  }
+
   useEffect(() => {
+    if (!selectedDevice) {
+      return;
+    }
+    setDeviceName(selectedDevice.name);
+    setDeviceTransport(selectedDevice.transport);
+    setDeviceEndpoint(selectedDevice.endpoint || "");
+  }, [selectedDevice?.id]);
+
+  useEffect(() => {
+    if (!accountPrincipal) return;
+    let refreshTimer: number | null = null;
+    let refreshListPending = false;
+    let refreshRuntimePending = false;
+    let refreshDevicesPending = false;
+    const scheduleEventRefresh = (options: { list: boolean; runtime: boolean; devices: boolean }) => {
+      refreshListPending ||= options.list;
+      refreshRuntimePending ||= options.runtime;
+      refreshDevicesPending ||= options.devices;
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        const projectId = selectedProjectIdRef.current || undefined;
+        const taskId = selectedTaskIdRef.current || undefined;
+        if (refreshListPending) {
+          refreshListPending = false;
+          refreshTaskList(projectId).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
+        }
+        if (refreshRuntimePending && taskId) {
+          refreshRuntimePending = false;
+          refreshRuntime(taskId).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
+        } else {
+          refreshRuntimePending = false;
+        }
+        if (refreshDevicesPending) {
+          refreshDevicesPending = false;
+          refreshDevices(projectId).catch((cause: unknown) => {
+            setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+          });
+        }
+      }, 50);
+    };
     setVoiceSupported(Boolean(getSpeechRecognitionConstructor()));
 
     refresh()
@@ -788,9 +1555,20 @@ function App(): JSX.Element {
     refreshHermesCatalog().catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause));
     });
+    refreshOpenAiAccount().catch((cause: unknown) => {
+      setOpenAiAuthMessage(cause instanceof Error ? cause.message : String(cause));
+    });
+    fetchHermesUpstreamDiagnostics()
+      .then(setHermesUpstreamDiagnostics)
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    refreshDevices().catch((cause: unknown) => {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    });
 
     const source = connectEvents((event) => {
-      setEvents((current) => [event, ...current].slice(0, 80));
+      setEvents((current) => [event, ...current.filter((entry) => entry.id !== event.id)].slice(0, 80));
       if (
         event.type === "project.created" ||
         event.type === "project.updated" ||
@@ -800,28 +1578,68 @@ function App(): JSX.Element {
         event.type === "task.deleted" ||
         event.type === "task.started" ||
         event.type === "agent.delta" ||
+        event.type === "hermes.projection.updated" ||
         event.type === "checkpoint.created" ||
         event.type === "chat.message.created" ||
         event.type === "chat.message.completed" ||
+        event.type === "task.turn.requested" ||
+        event.type === "routing.started" ||
+        event.type === "routing.ready" ||
+        event.type === "routing.decided" ||
+        event.type === "routing.failed" ||
+        event.type === "execution.direct.started" ||
+        event.type === "execution.specialists.planned" ||
+        event.type === "execution.escalated" ||
+        event.type === "task.turn.completed" ||
+        event.type === "task.turn.failed" ||
+        event.type === "task.plan.created" ||
+        event.type === "task.plan.step.started" ||
+        event.type === "task.plan.step.completed" ||
+        event.type === "task.plan.step.failed" ||
+        event.type === "device.command.created" ||
+        event.type === "device.command.queued" ||
+        event.type === "device.command.running" ||
+        event.type === "device.command.completed" ||
+        event.type === "device.command.failed" ||
+        event.type === "device.command.blocked" ||
+        event.type === "verification.created" ||
         event.type === "task.completed" ||
         event.type === "task.failed"
       ) {
-        refreshTaskList(event.projectId || undefined).catch((cause: unknown) => {
-          setError(cause instanceof Error ? cause.message : String(cause));
+        const selectedTaskEvent = Boolean(event.taskId && event.taskId === selectedTaskIdRef.current);
+        scheduleEventRefresh({
+          list: true,
+          runtime: selectedTaskEvent,
+          devices: event.type.startsWith("device.command") || event.type === "verification.created",
         });
-        if (event.taskId && event.taskId === selectedTaskIdRef.current) {
-          refreshRuntime(event.taskId).catch((cause: unknown) => {
-            setError(cause instanceof Error ? cause.message : String(cause));
-          });
-        }
       }
     });
 
     return () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       source.close();
       recognitionRef.current?.stop();
     };
-  }, []);
+  }, [accountPrincipal?.accountId]);
+
+  useEffect(() => {
+    if (!codexOAuthSession || !["starting", "awaiting_user"].includes(codexOAuthSession.status)) return;
+    const timer = window.setTimeout(() => {
+      pollCodexOAuthLogin(codexOAuthSession.id)
+        .then(async (session) => {
+          setCodexOAuthSession(session);
+          if (session.status === "complete") {
+            setOpenAiConnected(true);
+            setOpenAiAuthMessage("ChatGPT OAuth 연결이 완료되었습니다. 모든 Account Cell이 이 계정을 공유합니다.");
+            await refreshHermesCatalog();
+          } else if (session.status === "error") {
+            setOpenAiAuthMessage(session.error || "Codex OAuth 연결에 실패했습니다.");
+          }
+        })
+        .catch((cause: unknown) => setOpenAiAuthMessage(cause instanceof Error ? cause.message : String(cause)));
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [codexOAuthSession?.id, codexOAuthSession?.status]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -848,6 +1666,11 @@ function App(): JSX.Element {
 
   useEffect(() => {
     if (!projectPanelOpen || projectCreateMode !== "github" || !githubDeviceLogin || githubBusy || githubConnected) {
+      return;
+    }
+    if (Date.parse(githubDeviceLogin.expiresAt) <= Date.now()) {
+      setGithubDeviceLogin(null);
+      setGithubMessage("GitHub device login 코드가 만료되었습니다. 새 코드를 발급해 주세요.");
       return;
     }
 
@@ -883,9 +1706,24 @@ function App(): JSX.Element {
   }, [projectPanelOpen, projectCreateMode]);
 
   useEffect(() => {
+    if (!devicesPanelOpen) {
+      return;
+    }
+    refreshDevices(selectedProject?.id).catch((cause: unknown) => {
+      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+    });
+  }, [devicesPanelOpen, selectedProject?.id]);
+
+  useEffect(() => {
+    selectedProjectIdRef.current = selectedProjectId;
+  }, [selectedProjectId]);
+
+  useEffect(() => {
     selectedTaskIdRef.current = selectedTaskId;
     if (!selectedTaskId) {
       setTaskRuntime(null);
+      setTaskPlan(null);
+      setVerificationResults([]);
       return;
     }
 
@@ -893,6 +1731,17 @@ function App(): JSX.Element {
       setError(cause instanceof Error ? cause.message : String(cause));
     });
   }, [selectedTaskId]);
+
+  useEffect(() => {
+    setInteractionInput("");
+    setInteractionSending(false);
+  }, [pendingHermesInteractionKey]);
+
+  useEffect(() => {
+    window.requestAnimationFrame(() => {
+      latestChatMessageRef.current?.scrollIntoView({ block: "end" });
+    });
+  }, [latestDisplayedMessageId, selectedTaskId, mobileView]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -908,8 +1757,10 @@ function App(): JSX.Element {
     }
 
     setSendingMessage(true);
+    setMobileView("chat");
+    setMobileScreen("conversation");
     try {
-      if (selectedTask && !nextTitle) {
+      if (selectedTask && !newTaskMode) {
         await sendTaskMessage(selectedTask.id, prompt);
         setInstructions("");
         await refreshTaskList(selectedProject.id);
@@ -924,14 +1775,38 @@ function App(): JSX.Element {
       });
 
       setTasks((current) => [task, ...current]);
-      setSelectedTaskId(task.id);
+      selectTaskState(task.id);
       setMobileView("chat");
+      setMobileScreen("conversation");
       setTitle("");
       setInstructions("");
+      setNewTaskMode(false);
       await refreshRuntime(task.id);
       await refreshHermesCatalog();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSendingMessage(false);
+    }
+  }
+
+  async function handleHermesInteractionResponse(
+    input:
+      | { type: "approval"; choice: "once" | "session" | "always" | "deny" }
+      | { type: "clarify"; requestId: string; answer: string }
+      | { type: "sudo"; requestId: string; password: string }
+      | { type: "secret"; requestId: string; value: string },
+  ): Promise<void> {
+    if (!selectedTask || interactionSending) return;
+    setInteractionSending(true);
+    setError(null);
+    try {
+      await respondHermesInteraction(selectedTask.id, input);
+      setInteractionInput("");
+      await refreshRuntime(selectedTask.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setInteractionSending(false);
     }
   }
 
@@ -954,7 +1829,10 @@ function App(): JSX.Element {
     setProjectDescription("");
     setProjectWorkspacePath("");
     setProjectPanelOpen(false);
-    await refresh(project.id);
+    selectProjectState(project.id);
+    selectTaskState("");
+    setTaskRuntime(null);
+    await refresh(project.id, "");
   }
 
   async function handleRenameProject(): Promise<void> {
@@ -981,8 +1859,20 @@ function App(): JSX.Element {
       return;
     }
 
-    await deleteProject(selectedProject.id);
-    await refresh();
+    const deletedProjectId = selectedProject.id;
+    await deleteProject(deletedProjectId);
+    if (selectedProjectIdRef.current === deletedProjectId) {
+      listRefreshGenerationRef.current += 1;
+      selectProjectState("");
+      selectTaskState("");
+      setTasks([]);
+      setTaskRuntime(null);
+      setTaskPlan(null);
+      setVerificationResults([]);
+      setNewTaskMode(false);
+      setMobileView("list");
+    }
+    await refresh("", "");
   }
 
   async function handleRenameTask(): Promise<void> {
@@ -1013,7 +1903,7 @@ function App(): JSX.Element {
     await deleteTask(selectedTask.id);
     const remaining = tasks.filter((task) => task.id !== selectedTask.id);
     setTasks(remaining);
-    setSelectedTaskId(remaining[0]?.id || "");
+    selectTaskState(remaining[0]?.id || "");
     setTaskRuntime(null);
     setMobileView("list");
     await refreshTaskList(selectedProject?.id);
@@ -1096,7 +1986,7 @@ function App(): JSX.Element {
   async function handleUpstreamDiagnostics(): Promise<void> {
     const diagnostics = await fetchHermesUpstreamDiagnostics();
     setHermesUpstreamDiagnostics(diagnostics);
-    const providers = Object.entries(diagnostics.providerKeys)
+    const providers = Object.entries(diagnostics.providerKeys || {})
       .filter(([, enabled]) => enabled)
       .map(([name]) => name.replace("_API_KEY", ""))
       .join(", ");
@@ -1348,6 +2238,9 @@ function App(): JSX.Element {
   }
 
   async function handleHermesAudit(): Promise<void> {
+    if (!accountPrincipal?.canManageSharedOAuth) {
+      throw new Error("Hermes 전역 감사는 공유 OAuth 관리 Account에서만 실행할 수 있습니다.");
+    }
     const auditId = Date.now().toString(36);
     const prompt = hermesPrompt || "Run Termes Hermes audit.";
     const auditLine = (label: string, status = "ok") => {
@@ -1359,7 +2252,7 @@ function App(): JSX.Element {
     setHermesStreamEvents([]);
     setActionMessage("Hermes audit running");
 
-    const catalog = await fetchHermesCatalog();
+    const catalog = await fetchHermesCatalog(true);
     auditLine(`catalog features=${Object.values(catalog.capabilities.features).filter(Boolean).length}`);
 
     const health = await fetchHermesHealthDetailed();
@@ -1464,6 +2357,41 @@ function App(): JSX.Element {
     setActionMessage("Hermes audit completed");
   }
 
+  async function handleHermesRpc(): Promise<void> {
+    const method = hermesRpcMethod.trim();
+    if (!method) throw new Error("Hermes JSON-RPC method를 입력해 주세요.");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(hermesRpcParams || "{}");
+    } catch {
+      throw new Error("JSON-RPC params는 올바른 JSON object여야 합니다.");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("JSON-RPC params는 JSON object여야 합니다.");
+    }
+    setHermesRpcBusy(true);
+    setHermesRpcResult(`${method} 실행 중…`);
+    try {
+      let client = hermesRpcClientRef.current;
+      if (!client) {
+        client = new HermesRealtimeClient();
+        await client.connect({
+          projectId: selectedProject?.id || null,
+          taskId: selectedTask?.id || null,
+        });
+        hermesRpcClientRef.current = client;
+      }
+      const result = await client.request(method, parsed as Record<string, unknown>);
+      setHermesRpcResult(JSON.stringify(result, null, 2));
+    } catch (cause) {
+      hermesRpcClientRef.current?.close();
+      hermesRpcClientRef.current = null;
+      throw cause;
+    } finally {
+      setHermesRpcBusy(false);
+    }
+  }
+
   function renderWorkbench(): JSX.Element {
     if (activeWorkbenchTab === "hermes") {
       const features = hermesCatalog?.capabilities.features || hermesCapabilities?.features || {};
@@ -1498,6 +2426,61 @@ function App(): JSX.Element {
             {hermesRuntimeDetail}
           </div>
           {upstreamError ? <div className="actionNote danger">{upstreamError}</div> : null}
+
+          <section className={openAiConnected ? "openAiAuthCard connected" : "openAiAuthCard"}>
+            <div>
+              <strong>OpenAI OAuth</strong>
+              <span>{openAiAuthMessage}</span>
+            </div>
+            {codexOAuthSession?.status === "awaiting_user" ? (
+              <a href={codexOAuthSession.verificationUrl || "#"} target="_blank" rel="noreferrer">
+                <code>{codexOAuthSession.userCode}</code>
+                <span>계정 승인</span>
+              </a>
+            ) : null}
+            {!openAiConnected && !codexOAuthSession && accountPrincipal?.canManageSharedOAuth ? (
+              <button className="miniButton success" type="button" disabled={openAiAuthBusy} onClick={() => void handleOpenAiConnect()}>
+                <UserCircle2 size={14} />
+                <span>ChatGPT로 연결</span>
+              </button>
+            ) : null}
+            {!openAiConnected && !accountPrincipal?.canManageSharedOAuth ? (
+              <p className="mutedLine">공유 ChatGPT OAuth 연결은 지정된 관리 Account에서만 변경할 수 있습니다.</p>
+            ) : null}
+          </section>
+
+          <details className="hermesRpcConsole">
+            <summary>
+              <span>원본 JSON-RPC Operator</span>
+              <small>119 exact · 현재 Account Cell</small>
+            </summary>
+            <div className="hermesRpcFields">
+              <label>
+                <span>Method</span>
+                <input value={hermesRpcMethod} onChange={(event) => setHermesRpcMethod(event.target.value)} spellCheck={false} />
+              </label>
+              <label>
+                <span>Params</span>
+                <textarea value={hermesRpcParams} onChange={(event) => setHermesRpcParams(event.target.value)} spellCheck={false} />
+              </label>
+              <button
+                className="miniButton success"
+                type="button"
+                disabled={hermesRpcBusy}
+                onClick={() => {
+                  handleHermesRpc().catch((cause: unknown) => {
+                    const message = cause instanceof Error ? cause.message : String(cause);
+                    setHermesRpcResult(message);
+                    setError(message);
+                  });
+                }}
+              >
+                {hermesRpcBusy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
+                <span>{hermesRpcBusy ? "실행 중" : "실행"}</span>
+              </button>
+              <pre>{hermesRpcResult}</pre>
+            </div>
+          </details>
 
           <div className="hermesCommand">
             <textarea
@@ -1861,7 +2844,7 @@ function App(): JSX.Element {
               {upstreamDiagnostics.upstreamStatus} · base=
               {String(upstreamDiagnostics.baseUrlConfigured)} · key=
               {String(upstreamDiagnostics.apiKeyConfigured)} · provider=
-              {Object.entries(upstreamDiagnostics.providerKeys)
+              {Object.entries(upstreamDiagnostics.providerKeys || {})
                 .filter(([, enabled]) => enabled)
                 .map(([name]) => name.replace("_API_KEY", ""))
                 .join(", ") ||
@@ -2088,6 +3071,163 @@ function App(): JSX.Element {
     );
   }
 
+  if (accountAuthLoading) {
+    return (
+      <main className="accountGate" aria-busy="true">
+        <section className="accountGateCard compact">
+          <span className="accountGateMark"><Sparkles size={20} /></span>
+          <p>Termes workspace를 확인하고 있습니다.</p>
+          <Loader2 className="spin" size={20} aria-hidden="true" />
+        </section>
+      </main>
+    );
+  }
+
+  if (!accountPrincipal) {
+    return (
+      <main className="accountGate">
+        <section className="accountGateCard" aria-labelledby="account-gate-title">
+          <div className="accountGateIntro">
+            <span className="accountGateMark"><Sparkles size={22} /></span>
+            <div>
+              <p className="accountGateEyebrow">TERMES</p>
+              <h1 id="account-gate-title">Workspace에 들어가기</h1>
+            </div>
+          </div>
+          <p className="accountGateDescription">
+            질문과 실행 결과는 선택한 Account Cell 안에서만 처리됩니다.
+          </p>
+          <form className="accountGateForm" onSubmit={(event) => void handleAccountLogin(event)}>
+            <fieldset>
+              <legend>Account</legend>
+              <div className="accountChoiceList">
+                {accountOptions.map((account) => (
+                  <label className={selectedAccountId === account.accountId ? "accountChoice active" : "accountChoice"} key={account.accountId}>
+                    <input
+                      type="radio"
+                      name="termes-account"
+                      value={account.accountId}
+                      checked={selectedAccountId === account.accountId}
+                      onChange={() => setSelectedAccountId(account.accountId)}
+                    />
+                    <span className="accountChoiceIcon"><UserCircle2 size={20} /></span>
+                    <span>
+                      <strong>{account.displayName}</strong>
+                      <small>{account.workspaceKey}</small>
+                    </span>
+                    <CheckCircle2 className="accountChoiceCheck" size={18} />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="accountAccessField">
+              <span>접근 코드</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={accountAccessCode}
+                onChange={(event) => setAccountAccessCode(event.target.value)}
+                minLength={12}
+                placeholder="Account 접근 코드를 입력하세요"
+                required
+              />
+            </label>
+            {accountAuthError ? <p className="accountGateError" role="alert">{accountAuthError}</p> : null}
+            <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !selectedAccountId || accountAccessCode.length < 12}>
+              {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
+              <span>{accountAuthBusy ? "확인 중" : "계속"}</span>
+            </button>
+          </form>
+          <p className="accountGateFootnote">OpenAI API key는 사용하지 않습니다. 서버가 공유 ChatGPT OAuth 연결을 관리합니다.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (experience === "mobile") {
+    return (
+      <MobileExperience
+        account={accountPrincipal}
+        projects={projects}
+        tasks={tasks}
+        events={events}
+        selectedProject={selectedProject}
+        selectedTask={selectedTask}
+        runtime={taskRuntime}
+        taskPlan={taskPlan}
+        verificationResults={verificationResults}
+        devices={devices}
+        screen={mobileScreen}
+        loading={loading}
+        error={error}
+        search={taskSearch}
+        instructions={instructions}
+        newTaskMode={newTaskMode}
+        sendingMessage={sendingMessage}
+        interactionInput={interactionInput}
+        interactionSending={interactionSending}
+        voiceListening={voiceListening}
+        voiceSupported={voiceSupported}
+        theme={theme}
+        pwaStandalone={pwaStandalone}
+        pwaInstalled={pwaInstalled}
+        pwaInstallAvailable={pwaInstallMode !== null}
+        pwaInstallBannerVisible={pwaInstallBannerVisible}
+        pwaInstallBusy={pwaInstallBusy}
+        pwaInstallHelpVisible={pwaInstallHelpVisible}
+        pwaInstallMode={pwaInstallMode}
+        openAiConnected={openAiConnected}
+        openAiAuthBusy={openAiAuthBusy}
+        openAiAuthMessage={openAiAuthMessage}
+        codexOAuthSession={codexOAuthSession}
+        connectionReady={Boolean(upstreamDiagnostics?.ready || upstreamStatus === "ok")}
+        connectionLabel={upstreamDiagnostics?.ready ? hermesMode : upstreamStatus === "error" ? "연결 확인 필요" : hermesRuntimeDetail}
+        onNavigate={(screen) => {
+          if (screen === "tasks") setNewTaskMode(false);
+          setMobileScreen(screen);
+        }}
+        onSelectProject={(projectId) => {
+          selectProjectState(projectId);
+          selectTaskState("");
+          setNewTaskMode(false);
+          setTitle("");
+          setMobileScreen("tasks");
+          refresh(projectId, "").catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
+        }}
+        onSelectTask={(taskId) => {
+          selectTaskState(taskId);
+          setNewTaskMode(false);
+          setTitle("");
+          setMobileScreen("conversation");
+        }}
+        onStartNewTask={() => {
+          setNewTaskMode(true);
+          setTitle("");
+          setInstructions("");
+          setMobileScreen("conversation");
+        }}
+        onSearchChange={setTaskSearch}
+        onInstructionsChange={setInstructions}
+        onInteractionInputChange={setInteractionInput}
+        onSubmit={(event) => void handleSubmit(event)}
+        onInteraction={(input) => void handleHermesInteractionResponse(input)}
+        onRefresh={() => {
+          refresh().catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
+        }}
+        onToggleVoice={toggleVoiceInput}
+        onThemeChange={setTheme}
+        onInstallPwa={() => void handleInstallPwa()}
+        onDismissPwaInstall={handleDismissPwaInstall}
+        onConnectOpenAi={() => void handleOpenAiConnect()}
+        onLogout={() => void handleAccountLogout()}
+      />
+    );
+  }
+
   return (
     <main className={`telegram-shell termesAliasShell mobileView-${mobileView}`}>
       <div className="aliasChrome">
@@ -2111,14 +3251,19 @@ function App(): JSX.Element {
               <Wifi size={13} />
             </button>
           </div>
-          <button
-            className={searchOpen ? "aliasIconButton active" : "aliasIconButton"}
-            type="button"
-            title="Search"
-            onClick={() => setSearchOpen((current) => !current)}
-          >
-            <Search size={19} />
-          </button>
+          <div className="accountHeaderActions">
+            <button
+              className={searchOpen ? "aliasIconButton active" : "aliasIconButton"}
+              type="button"
+              title="Search"
+              onClick={() => setSearchOpen((current) => !current)}
+            >
+              <Search size={19} />
+            </button>
+            <button className="aliasIconButton" type="button" title={`${accountPrincipal.displayName}에서 나가기`} onClick={() => void handleAccountLogout()}>
+              <LogOut size={18} />
+            </button>
+          </div>
         </header>
 
         {searchOpen ? (
@@ -2141,8 +3286,9 @@ function App(): JSX.Element {
               type="button"
               title={project.workspacePath ? `${project.name} · ${project.workspacePath}` : project.name}
               onClick={() => {
-                setSelectedProjectId(project.id);
-                refresh(project.id).catch((cause: unknown) => {
+                selectProjectState(project.id);
+                selectTaskState("");
+                refresh(project.id, "").catch((cause: unknown) => {
                   setError(cause instanceof Error ? cause.message : String(cause));
                 });
               }}
@@ -2159,6 +3305,16 @@ function App(): JSX.Element {
           >
             <FolderPlus size={14} />
             프로젝트 등록
+          </button>
+          <button
+            className={devicesPanelOpen ? "project-chip-button active" : "project-chip-button"}
+            type="button"
+            title="Devices"
+            data-testid="open-devices-drawer"
+            onClick={() => setDevicesPanelOpen(true)}
+          >
+            <Terminal size={14} />
+            Devices
           </button>
           <button
             className="project-chip-button iconOnly"
@@ -2320,18 +3476,9 @@ function App(): JSX.Element {
                           연결 해제
                         </button>
                       ) : null}
-                      <button
-                        className="aliasActionButton primary"
-                        type="button"
-                        disabled={githubBusy || !githubStatus?.oauthConfigured}
-                        onClick={startGitHubLogin}
-                      >
-                        <Github size={15} />
-                        {githubConnected ? "다른 계정 로그인" : "GitHub 로그인"}
-                      </button>
                       {!githubConnected ? (
                         <button
-                          className="aliasActionButton secondary"
+                          className="aliasActionButton primary"
                           type="button"
                           disabled={githubBusy || !githubStatus?.deviceConfigured}
                           onClick={() => {
@@ -2343,6 +3490,15 @@ function App(): JSX.Element {
                           Device 코드
                         </button>
                       ) : null}
+                      <button
+                        className="aliasActionButton secondary"
+                        type="button"
+                        disabled={githubBusy || !githubStatus?.browserOAuthEnabled}
+                        onClick={startGitHubLogin}
+                      >
+                        <Github size={15} />
+                        {githubConnected ? "다른 계정 로그인" : "Browser OAuth"}
+                      </button>
                     </div>
                   </section>
 
@@ -2353,7 +3509,9 @@ function App(): JSX.Element {
                       <div>
                         <strong>GitHub verification code</strong>
                         <input readOnly value={githubDeviceLogin.userCode} aria-label="GitHub verification code" />
-                        <span>{new Date(githubDeviceLogin.expiresAt).toLocaleTimeString("ko-KR")}까지 유효</span>
+                        <span>
+                          {new Date(githubDeviceLogin.expiresAt).toLocaleTimeString("ko-KR")}까지 유효 · 자동 확인 중
+                        </span>
                       </div>
                       <div className="githubDeviceActions">
                         <a href={githubDeviceLogin.verificationUriComplete || githubDeviceLogin.verificationUri} target="_blank" rel="noreferrer">
@@ -2378,7 +3536,7 @@ function App(): JSX.Element {
                             });
                           }}
                         >
-                          승인 완료 확인
+                          지금 확인
                         </button>
                       </div>
                     </section>
@@ -2522,6 +3680,355 @@ function App(): JSX.Element {
           </form>,
           document.body,
         ) : null}
+
+        {devicesPanelOpen ? createPortal(
+          <form
+            className="projectDrawerBackdrop"
+            onSubmit={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => setDevicesPanelOpen(false)}
+          >
+            <section
+              className="projectDrawer devicesDrawer"
+              aria-label="Devices"
+              data-testid="devices-drawer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="projectDrawerHeader">
+                <div>
+                  <span className="sectionLabel">Device Gateway</span>
+                  <h2>Devices</h2>
+                </div>
+                <button className="aliasIconButton" type="button" title="닫기" onClick={() => setDevicesPanelOpen(false)}>
+                  <X size={17} />
+                </button>
+              </header>
+
+              <p className="projectDrawerMessage">{deviceBusy ? "device 작업 처리 중..." : deviceMessage}</p>
+
+              <div className="deviceToolbar">
+                <button
+                  className="aliasActionButton secondary"
+                  type="button"
+                  disabled={deviceBusy}
+                  onClick={() => {
+                    refreshDevices(selectedProject?.id).catch((cause: unknown) => {
+                      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                    });
+                  }}
+                >
+                  <RefreshCw size={15} />
+                  새로고침
+                </button>
+                <button
+                  className="aliasActionButton primary"
+                  type="button"
+                  disabled={deviceBusy || !selectedProject}
+                  data-testid="discover-devices"
+                  onClick={() => {
+                    handleDiscoverDevices().catch((cause: unknown) => {
+                      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                    });
+                  }}
+                >
+                  <Wifi size={15} />
+                  Discover
+                </button>
+              </div>
+
+              <div className="devicePlatformGrid" role="tablist" aria-label="Device platform">
+                {devicePlatforms.map((platform) => (
+                  <button
+                    key={platform}
+                    type="button"
+                    className={devicePlatform === platform ? "active" : ""}
+                    onClick={() => handleDevicePlatformChange(platform)}
+                  >
+                    {devicePlatformLabel(platform)}
+                  </button>
+                ))}
+              </div>
+
+              <div className="deviceTransportGrid" role="group" aria-label="Device transport">
+                {transportOptions(devicePlatform).map((transport) => (
+                  <button
+                    key={transport}
+                    type="button"
+                    className={deviceTransport === transport ? "active" : ""}
+                    onClick={() => setDeviceTransport(transport)}
+                  >
+                    {transport === "ssh" && devicePlatform === "windows" ? "OpenSSH" : transport.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <div className="deviceStatusGrid" role="group" aria-label="Device status filter">
+                {deviceStatusFilters.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    className={deviceStatusFilter === status ? "active" : ""}
+                    onClick={() => {
+                      setDeviceStatusFilter(status);
+                      const nextDevice = devices.find(
+                        (device) =>
+                          device.platform === devicePlatform && (status === "all" || device.status === status),
+                      );
+                      setSelectedDeviceId(nextDevice?.id || "");
+                    }}
+                  >
+                    {status === "all" ? "All" : status}
+                  </button>
+                ))}
+              </div>
+
+              <label className="projectDrawerField">
+                <span>장치 이름</span>
+                <input
+                  value={deviceName}
+                  onChange={(event) => setDeviceName(event.target.value)}
+                  placeholder="예: Windows Lab 01"
+                  data-testid="device-name-input"
+                />
+              </label>
+
+              <label className="projectDrawerField">
+                <span>Endpoint</span>
+                <input
+                  value={deviceEndpoint}
+                  onChange={(event) => setDeviceEndpoint(event.target.value)}
+                  placeholder={devicePlatform === "local_mock" ? "local://termes/device-gateway" : "user@host 또는 WinRM URL"}
+                  disabled={devicePlatform === "local_mock"}
+                  data-testid="device-endpoint-input"
+                />
+              </label>
+
+              <button
+                className="aliasActionButton primary fullWidth"
+                type="button"
+                disabled={deviceBusy || !selectedProject || !deviceName.trim()}
+                data-testid="register-device"
+                onClick={() => {
+                  handleRegisterDevice().catch((cause: unknown) => {
+                    setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                  });
+                }}
+              >
+                <Plus size={15} />
+                장치 등록
+              </button>
+
+              <div className="deviceEditActions">
+                <button
+                  className="aliasActionButton secondary"
+                  type="button"
+                  disabled={deviceBusy || !selectedDevice || !deviceName.trim()}
+                  data-testid="update-device"
+                  onClick={() => {
+                    handleUpdateSelectedDevice().catch((cause: unknown) => {
+                      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                    });
+                  }}
+                >
+                  <Pencil size={15} />
+                  선택 장치 저장
+                </button>
+                <button
+                  className="aliasActionButton secondary danger"
+                  type="button"
+                  disabled={deviceBusy || !selectedDevice}
+                  data-testid="delete-device"
+                  onClick={() => {
+                    handleDeleteSelectedDevice().catch((cause: unknown) => {
+                      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                    });
+                  }}
+                >
+                  <Trash2 size={15} />
+                  장치 삭제
+                </button>
+              </div>
+
+              <div className="deviceList" aria-label="Device list">
+                {devices.length === 0 ? (
+                  <div className="githubRepositoryEmpty">등록된 장치가 없습니다. Discover 또는 장치 등록을 실행해 주세요.</div>
+                ) : filteredDevicesForPanel.length === 0 ? (
+                  <div className="githubRepositoryEmpty">현재 플랫폼과 상태 조건에 맞는 장치가 없습니다.</div>
+                ) : (
+                  filteredDevicesForPanel.map((device) => (
+                    <button
+                      key={device.id}
+                      type="button"
+                      className={selectedDevice?.id === device.id ? "deviceRow active" : "deviceRow"}
+                      onClick={() => {
+                        setSelectedDeviceId(device.id);
+                        setDevicePlatform(device.platform);
+                        setDeviceTransport(device.transport);
+                        setDeviceAction(defaultActionForPlatform(device.platform));
+                        setDeviceParamsText(defaultParamsForAction(defaultActionForPlatform(device.platform)));
+                        setLastDeviceCommand(null);
+                        setLastDeviceVerification(null);
+                      }}
+                    >
+                      <span className={`deviceBadge platform-${device.platform}`}>{devicePlatformLabel(device.platform)}</span>
+                      <span className="deviceRowMain">
+                        <strong>{device.name}</strong>
+                        <em>{device.transport === "ssh" && device.platform === "windows" ? "OpenSSH" : device.transport}</em>
+                      </span>
+                      <span className={`statusDot status-${device.status}`}>{device.status}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              {selectedDevice ? (
+                <section className="deviceDetailPanel" data-testid="device-detail-panel">
+                  <div className="deviceDetailHeader">
+                    <span className={`deviceBadge platform-${selectedDevice.platform}`}>
+                      {devicePlatformLabel(selectedDevice.platform)}
+                    </span>
+                    <strong>{selectedDevice.name}</strong>
+                    <em className={`statusDot status-${selectedDevice.status}`}>{selectedDevice.status}</em>
+                  </div>
+                  <div className="deviceDetailGrid">
+                    <span>transport</span>
+                    <strong>
+                      {selectedDevice.transport === "ssh" && selectedDevice.platform === "windows"
+                        ? "OpenSSH"
+                        : selectedDevice.transport}
+                    </strong>
+                    <span>endpoint</span>
+                    <strong>{selectedDevice.endpoint || "not set"}</strong>
+                    <span>last seen</span>
+                    <strong>{eventDateTime(selectedDevice.lastSeenAt)}</strong>
+                    <span>labels</span>
+                    <strong>
+                      {Object.keys(selectedDevice.labels).length > 0
+                        ? Object.entries(selectedDevice.labels)
+                            .map(([key, value]) => `${key}=${value}`)
+                            .join(", ")
+                        : "none"}
+                    </strong>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="deviceCommandPanel">
+                <div className="deviceCommandHeader">
+                  <strong>{selectedDevice?.name || "장치 선택 필요"}</strong>
+                  <span>{selectedTask ? `task ${compactTaskId(selectedTask.id)}` : "task 연결 없음"}</span>
+                </div>
+
+                <div className="deviceQuickActions">
+                  {quickActionsForPlatform(selectedDevice?.platform || devicePlatform).map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className={deviceAction === action ? "active" : ""}
+                      onClick={() => {
+                        setDeviceAction(action);
+                        setDeviceParamsText(defaultParamsForAction(action));
+                        setLastDeviceCommand(null);
+                        setLastDeviceVerification(null);
+                      }}
+                    >
+                      {action.split(".").slice(1).join(".")}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="projectDrawerField">
+                  <span>Action</span>
+                  <input value={deviceAction} onChange={(event) => setDeviceAction(event.target.value)} />
+                </label>
+
+                <label className="projectDrawerField">
+                  <span>Params JSON</span>
+                  <textarea
+                    value={deviceParamsText}
+                    onChange={(event) => setDeviceParamsText(event.target.value)}
+                    rows={5}
+                    data-testid="device-command-params"
+                  />
+                </label>
+
+                {deviceCommandBlockedReason ? (
+                  <div className="devicePolicyBanner danger">
+                    <CircleAlert size={15} />
+                    <span>{deviceCommandBlockedReason}</span>
+                  </div>
+                ) : deviceCommandNeedsApproval ? (
+                  <div className="devicePolicyBanner warning">
+                    <ShieldCheck size={15} />
+                    <span>이 명령은 실행 전 승인이 필요합니다.</span>
+                  </div>
+                ) : null}
+
+                <button
+                  className="aliasActionButton primary fullWidth"
+                  type="button"
+                  disabled={deviceBusy || !selectedDevice || Boolean(deviceCommandBlockedReason)}
+                  data-testid="run-device-command"
+                  onClick={() => {
+                    handleRunDeviceCommand().catch((cause: unknown) => {
+                      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                    });
+                  }}
+                >
+                  {deviceBusy ? <Loader2 size={15} className="spinIcon" /> : <Play size={15} />}
+                  Run command
+                </button>
+
+                {lastDeviceCommand ? (
+                  <article className="deviceResultPanel" data-testid="device-command-result">
+                    <div className="deviceResultHeader">
+                      <strong>{lastDeviceCommand.status}</strong>
+                      <span>{lastDeviceCommand.action}</span>
+                    </div>
+                    <div className="deviceResultGrid">
+                      <span>exit</span>
+                      <strong>{lastDeviceCommand.exitCode ?? "n/a"}</strong>
+                      <span>duration</span>
+                      <strong>{commandDuration(lastDeviceCommand)}</strong>
+                      <span>artifact</span>
+                      <strong>{lastDeviceCommand.artifactUri || "none"}</strong>
+                    </div>
+                    {lastDeviceVerification ? (
+                      <div className={`deviceVerificationPill status-${lastDeviceVerification.status}`}>
+                        <CheckCircle2 size={14} />
+                        <strong>{lastDeviceVerification.status}</strong>
+                        <span>{Math.round(lastDeviceVerification.confidence * 100)}%</span>
+                      </div>
+                    ) : null}
+                    <pre>{commandOutputText(lastDeviceCommand)}</pre>
+                    <button
+                      className="aliasActionButton secondary"
+                      type="button"
+                      onClick={() => {
+                        handleCopyDeviceLogs().catch((cause: unknown) => {
+                          setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+                        });
+                      }}
+                    >
+                      로그 복사
+                    </button>
+                  </article>
+                ) : null}
+              </section>
+
+              <section className="deviceCapabilities">
+                <span className="sectionLabel">Capabilities</span>
+                <div>
+                  {capabilityPackages.slice(0, 8).map((capability) => (
+                    <span key={capability.id}>{capability.key}</span>
+                  ))}
+                </div>
+              </section>
+            </section>
+          </form>,
+          document.body,
+        ) : null}
       </div>
 
       {error ? (
@@ -2556,7 +4063,9 @@ function App(): JSX.Element {
                     type="button"
                     data-testid={`thread-list-item-${task.id}`}
                     onClick={() => {
-                      setSelectedTaskId(task.id);
+                      selectTaskState(task.id);
+                      setNewTaskMode(false);
+                      setTitle("");
                       setMobileView("chat");
                     }}
                   >
@@ -2598,6 +4107,8 @@ function App(): JSX.Element {
               type="button"
               disabled={!selectedProject}
               onClick={() => {
+                setNewTaskMode(true);
+                setTitle("");
                 setMobileView("chat");
                 window.setTimeout(() => titleInputRef.current?.focus(), 0);
               }}
@@ -2622,8 +4133,12 @@ function App(): JSX.Element {
               </div>
             </div>
             <div className="aliasHeaderActions">
+              <span className="accountContext" title={`${accountPrincipal.displayName} · ${accountPrincipal.workspaceKey}`}>
+                <UserCircle2 size={17} />
+                <span>{accountPrincipal.displayName}</span>
+              </span>
               <button
-                className="aliasIconButton"
+                className="aliasIconButton secondaryTaskAction"
                 type="button"
                 title="대화 제목 변경"
                 disabled={!selectedTask}
@@ -2636,7 +4151,7 @@ function App(): JSX.Element {
                 <Pencil size={17} />
               </button>
               <button
-                className="aliasIconButton danger"
+                className="aliasIconButton danger secondaryTaskAction"
                 type="button"
                 title="대화 삭제"
                 disabled={!selectedTask}
@@ -2659,8 +4174,14 @@ function App(): JSX.Element {
               >
                 <Settings size={18} />
               </button>
-              <button className="aliasIconButton" type="button" title="Notifications">
-                <Bell size={18} />
+              <button
+                className="aliasIconButton"
+                type="button"
+                title={theme === "dark" ? "밝은 테마" : "어두운 테마"}
+                aria-label={theme === "dark" ? "밝은 테마로 전환" : "어두운 테마로 전환"}
+                onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+              >
+                {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
               </button>
             </div>
           </header>
@@ -2689,8 +4210,8 @@ function App(): JSX.Element {
                   <span>{latestSession?.hermesRunId || hermesRuntimeDetail}</span>
                 </div>
 
-                {displayedMessages.length > 0 ? (
-                  displayedMessages.map((message) => (
+                {displayedChatMessages.length > 0 ? (
+                  displayedChatMessages.map((message) => (
                     <article
                       className={
                         message.role === "user"
@@ -2709,7 +4230,9 @@ function App(): JSX.Element {
                           <strong>{message.role === "user" ? "Master" : "Hermes"}</strong>
                           <time>{eventTime(message.createdAt)}</time>
                         </div>
-                        <p>{message.content}</p>
+                        {message.role === "assistant"
+                          ? <MarkdownMessage content={message.content} />
+                          : <p>{message.content}</p>}
                       </div>
                     </article>
                   ))
@@ -2728,20 +4251,286 @@ function App(): JSX.Element {
                   <div className="aliasEmpty">좌측 목록에서 채팅창을 선택하거나 새 작업을 입력해 주세요.</div>
                 )}
 
-                {displayedTaskEvents.slice(0, 12).map((event) => (
-                  <article className="aliasMessage agentMessage message-enter" key={event.id}>
-                    <span className="aliasAgentAvatar">
-                      <Bot size={15} />
-                    </span>
-                    <div className="aliasMessageBubble">
+                {showLiveHermesProjection && hermesProjection ? (
+                  <article className="aliasMessage agentMessage message-enter liveHermesMessage">
+                    <span className="aliasAgentAvatar"><Bot size={15} /></span>
+                    <div className="aliasMessageBubble richProjectionBubble">
                       <div className="aliasMessageMeta">
-                        <strong>{event.type}</strong>
-                        <time>{eventTime(event.createdAt)}</time>
+                        <strong>Hermes · Live</strong>
+                        <time>{hermesProjection.needsInput ? "input required" : "streaming"}</time>
                       </div>
-                      <p>{payloadText(event)}</p>
+                      {hermesProjection.parts.map((part, index) => {
+                        if (part.type === "text") return <p key={`text-${index}`}>{part.text}</p>;
+                        if (part.type === "reasoning") {
+                          return (
+                            <details className="projectionReasoning" key={`reasoning-${index}`}>
+                              <summary>Reasoning</summary>
+                              <p>{part.text}</p>
+                            </details>
+                          );
+                        }
+                        return (
+                          <section className={`projectionTool ${part.isError ? "error" : ""}`} key={part.toolCallId}>
+                            <div>
+                              <Terminal size={13} />
+                              <strong>{part.toolName}</strong>
+                            </div>
+                            <small>{part.result === undefined ? "running" : part.isError ? "failed" : "completed"}</small>
+                          </section>
+                        );
+                      })}
+                      {hermesProjection.error ? <div className="projectionError">{hermesProjection.error}</div> : null}
+                      {pendingHermesInteraction?.type === "approval" ? (
+                        <section className="hermesInteraction" aria-live="polite">
+                          <div className="hermesInteractionHeading">
+                            <ShieldCheck size={15} />
+                            <div>
+                              <strong>실행 승인이 필요합니다</strong>
+                              <p>{pendingHermesInteraction.description}</p>
+                            </div>
+                          </div>
+                          {pendingHermesInteraction.command ? (
+                            <code className="hermesInteractionCommand">{pendingHermesInteraction.command}</code>
+                          ) : null}
+                          <div className="hermesInteractionActions">
+                            <button
+                              disabled={interactionSending}
+                              onClick={() => void handleHermesInteractionResponse({ type: "approval", choice: "once" })}
+                              type="button"
+                            >
+                              한 번 허용
+                            </button>
+                            <button
+                              disabled={interactionSending}
+                              onClick={() => void handleHermesInteractionResponse({ type: "approval", choice: "session" })}
+                              type="button"
+                            >
+                              이 세션 허용
+                            </button>
+                            {pendingHermesInteraction.allowPermanent ? (
+                              <button
+                                disabled={interactionSending}
+                                onClick={() => void handleHermesInteractionResponse({ type: "approval", choice: "always" })}
+                                type="button"
+                              >
+                                항상 허용
+                              </button>
+                            ) : null}
+                            <button
+                              className="danger"
+                              disabled={interactionSending}
+                              onClick={() => void handleHermesInteractionResponse({ type: "approval", choice: "deny" })}
+                              type="button"
+                            >
+                              거부
+                            </button>
+                          </div>
+                        </section>
+                      ) : pendingHermesInteraction?.type === "clarify" ? (
+                        <section className="hermesInteraction" aria-live="polite">
+                          <div className="hermesInteractionHeading">
+                            <MessageSquare size={15} />
+                            <div>
+                              <strong>추가 정보가 필요합니다</strong>
+                              <p>{pendingHermesInteraction.question}</p>
+                            </div>
+                          </div>
+                          {pendingHermesInteraction.choices?.length ? (
+                            <div className="hermesInteractionChoices">
+                              {pendingHermesInteraction.choices.map((choice) => (
+                                <button
+                                  disabled={interactionSending}
+                                  key={choice}
+                                  onClick={() => void handleHermesInteractionResponse({
+                                    type: "clarify",
+                                    requestId: pendingHermesInteraction.requestId,
+                                    answer: choice,
+                                  })}
+                                  type="button"
+                                >
+                                  {choice}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <form
+                            className="hermesInteractionInput"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              if (!interactionInput.trim()) return;
+                              void handleHermesInteractionResponse({
+                                type: "clarify",
+                                requestId: pendingHermesInteraction.requestId,
+                                answer: interactionInput.trim(),
+                              });
+                            }}
+                          >
+                            <input
+                              aria-label="Hermes 추가 질문 답변"
+                              autoComplete="off"
+                              disabled={interactionSending}
+                              onChange={(event) => setInteractionInput(event.target.value)}
+                              placeholder="직접 답변 입력"
+                              value={interactionInput}
+                            />
+                            <button disabled={interactionSending || !interactionInput.trim()} type="submit">
+                              <Send size={14} />
+                              전송
+                            </button>
+                          </form>
+                        </section>
+                      ) : pendingHermesInteraction?.type === "sudo" || pendingHermesInteraction?.type === "secret" ? (
+                        <section className="hermesInteraction secure" aria-live="polite">
+                          <div className="hermesInteractionHeading">
+                            <ShieldCheck size={15} />
+                            <div>
+                              <strong>{pendingHermesInteraction.type === "sudo" ? "관리자 암호 입력" : "보안 값 입력"}</strong>
+                              <p>
+                                {pendingHermesInteraction.type === "secret"
+                                  ? pendingHermesInteraction.prompt || pendingHermesInteraction.envVar
+                                  : "입력값은 Hermes에만 전달되며 Termes에 저장되지 않습니다."}
+                              </p>
+                            </div>
+                          </div>
+                          <form
+                            className="hermesInteractionInput"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              if (!interactionInput) return;
+                              void handleHermesInteractionResponse(
+                                pendingHermesInteraction.type === "sudo"
+                                  ? { type: "sudo", requestId: pendingHermesInteraction.requestId, password: interactionInput }
+                                  : { type: "secret", requestId: pendingHermesInteraction.requestId, value: interactionInput },
+                              );
+                            }}
+                          >
+                            <input
+                              aria-label={pendingHermesInteraction.type === "sudo" ? "관리자 암호" : "보안 값"}
+                              autoComplete="off"
+                              disabled={interactionSending}
+                              onChange={(event) => setInteractionInput(event.target.value)}
+                              placeholder={pendingHermesInteraction.type === "sudo" ? "암호" : pendingHermesInteraction.envVar || "보안 값"}
+                              type="password"
+                              value={interactionInput}
+                            />
+                            <button disabled={interactionSending || !interactionInput} type="submit">
+                              <Send size={14} />
+                              안전하게 전송
+                            </button>
+                          </form>
+                        </section>
+                      ) : null}
                     </div>
                   </article>
-                ))}
+                ) : null}
+
+                <div aria-hidden="true" className="aliasChatAnchor" ref={latestChatMessageRef} />
+
+                {latestTurn ? (
+                  <div className={`routingStatus status-${latestTurn.status}`} data-testid="routing-status">
+                    <div>
+                      <strong>
+                        {latestTurn.status === "routing"
+                          ? "질문 분류 중"
+                          : latestTurn.decision?.route === "instant" || latestTurn.decision?.route === "direct"
+                            ? "직접 응답"
+                            : "전문 에이전트 경로"}
+                      </strong>
+                      <span>
+                        {latestTurn.decision
+                          ? latestTurn.decision.semanticFrame?.action && latestTurn.decision.semanticFrame?.target
+                            ? `${latestTurn.decision.semanticFrame.action} · ${latestTurn.decision.semanticFrame.target} · ${latestTurn.decision.route}`
+                            : `${latestTurn.decision.primaryDomain} · ${latestTurn.decision.route}`
+                          : "상시 Routing Specialist가 처리 경로를 결정합니다."}
+                      </span>
+                    </div>
+                    <small>{latestTurn.status}</small>
+                  </div>
+                ) : null}
+
+                {orchestration && orchestration.specialists.length > 0 ? (
+                  <details
+                    className={`specialistPanel status-${orchestration.status}`}
+                    data-testid="specialist-panel"
+                    open={orchestration.status !== "verified" ? true : undefined}
+                  >
+                    <summary className="specialistHeader">
+                      <div>
+                        <strong>전문 에이전트 협업</strong>
+                        <span>
+                          {orchestration.domain} · {orchestration.weight} · {orchestration.collaboration}
+                        </span>
+                      </div>
+                      <small>{orchestration.status}</small>
+                    </summary>
+                    <div className="specialistProgress" aria-label="전문 에이전트 진행률">
+                      <span style={{ width: `${Math.round((orchestration.specialists.filter((specialist) => specialist.status === "completed").length / Math.max(1, orchestration.specialists.length)) * 100)}%` }} />
+                    </div>
+                    <div className="specialistRows">
+                      {orchestration.specialists.map((specialist) => (
+                        <article className={`specialistRow status-${specialist.status}`} key={specialist.id}>
+                          <span className="specialistStateDot" aria-hidden="true" />
+                          <div>
+                            <strong>{specialist.role}</strong>
+                            <p>{specialist.mission}</p>
+                          </div>
+                          <small>{specialist.status}</small>
+                        </article>
+                      ))}
+                    </div>
+                    {orchestration.status === "verified" ? (
+                      <div className="specialistVerified">
+                        <ShieldCheck size={14} />
+                        <span>모든 필수 전문 결과가 최종 응답에 반영되었습니다.</span>
+                      </div>
+                    ) : null}
+                  </details>
+                ) : null}
+
+                {taskPlan ? (
+                  <details className="taskPlanPanel" data-testid="task-plan-panel">
+                    <summary className="taskPlanHeader">
+                      <strong>계획 및 실행 단계</strong>
+                      <span>{taskPlan.status}</span>
+                    </summary>
+                    <div className="capabilityStrip">
+                      {taskPlan.selectedCapabilities.map((capability) => (
+                        <span key={capability}>{capability}</span>
+                      ))}
+                    </div>
+                    <div className="taskPlanSteps">
+                      {taskPlan.steps.map((step) => (
+                        <article key={step.id} className={`taskPlanStep status-${step.status}`}>
+                          <span>{step.order}</span>
+                          <div>
+                            <strong>{step.title}</strong>
+                            <em>{step.type}{step.capabilityKey ? ` · ${step.capabilityKey}` : ""}</em>
+                          </div>
+                          <small>{step.status}</small>
+                        </article>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+
+                {verificationResults.length > 0 ? (
+                  <details className="taskPlanPanel verificationPanel" data-testid="verification-panel">
+                    <summary className="taskPlanHeader">
+                      <strong>검증 결과</strong>
+                      <span>{verificationResults.length}</span>
+                    </summary>
+                    {verificationResults.slice(0, 4).map((verification) => (
+                      <article key={verification.id} className={`verificationRow status-${verification.status}`}>
+                        <CheckCircle2 size={14} />
+                        <div>
+                          <strong>{verification.status}</strong>
+                          <p>{verification.summary}</p>
+                        </div>
+                        <small>{Math.round(verification.confidence * 100)}%</small>
+                      </article>
+                    ))}
+                  </details>
+                ) : null}
 
                 <div className="aliasRuntimeSummary">
                   <div>
@@ -2768,18 +4557,20 @@ function App(): JSX.Element {
                 data-testid="thread-detail-footer"
                 onSubmit={(event) => void handleSubmit(event)}
               >
-                <input
-                  ref={titleInputRef}
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder={selectedTask ? "새 대화 제목(입력하면 새 대화 생성)" : "새 대화 제목"}
-                />
+                {newTaskMode || !selectedTask ? (
+                  <input
+                    ref={titleInputRef}
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="새 작업 제목 · 비워두면 질문에서 자동 생성"
+                  />
+                ) : null}
                 <div className="aliasComposerRow">
                   <textarea
                     value={instructions}
                     onChange={(event) => setInstructions(event.target.value)}
                     placeholder={
-                      selectedTask && !title.trim()
+                      selectedTask && !newTaskMode
                         ? "Hermes에게 후속 메시지를 보내세요..."
                         : "Termes에게 구현, 점검, 리팩터링, 배포를 지시하세요..."
                     }
@@ -2797,16 +4588,25 @@ function App(): JSX.Element {
                   <button
                     className="aliasSendButton"
                     type="submit"
-                    title={selectedTask && !title.trim() ? "Send message" : "Create task"}
+                    title={selectedTask && !newTaskMode ? "Send message" : "Create task"}
                     disabled={!selectedProject || sendingMessage || !instructions.trim()}
                   >
                     {sendingMessage ? <Loader2 size={18} className="spinIcon" /> : <Send size={18} />}
                   </button>
                 </div>
-                <div className="composerHint">
-                  {selectedTask && !title.trim()
-                    ? "선택된 대화에 메시지를 보냅니다."
-                    : "제목을 비워도 첫 문장으로 새 대화 제목을 만듭니다."}
+                <div className="composerToolbar">
+                  <span>{selectedTask && !newTaskMode ? "Hermes · 전문 에이전트 자동 구성" : "새 작업"}</span>
+                  <button
+                    className={newTaskMode ? "composerModeButton active" : "composerModeButton"}
+                    type="button"
+                    onClick={() => {
+                      setNewTaskMode((current) => !current);
+                      setTitle("");
+                    }}
+                  >
+                    <Plus size={14} />
+                    {newTaskMode ? "현재 대화로" : "새 작업"}
+                  </button>
                 </div>
               </form>
             </section>
@@ -2838,4 +4638,5 @@ function App(): JSX.Element {
   );
 }
 
+bootstrapTermesPwa();
 createRoot(document.getElementById("root") as HTMLElement).render(<App />);
