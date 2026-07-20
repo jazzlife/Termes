@@ -68,7 +68,6 @@ import type {
 import {
   connectEvents,
   cloneGitHubProject,
-  cloneGitHubRepository,
   createDevice,
   createHermesChatCompletion,
   createHermesJob,
@@ -3159,6 +3158,9 @@ function App(): JSX.Element {
         codexOAuthSession={codexOAuthSession}
         connectionReady={Boolean(upstreamDiagnostics?.ready || upstreamStatus === "ok")}
         connectionLabel={upstreamDiagnostics?.ready ? hermesMode : upstreamStatus === "error" ? "연결 확인 필요" : hermesRuntimeDetail}
+        githubStatus={githubStatus}
+        githubRepositoryGroups={githubRepositoryGroups}
+        projectFolders={projectFolders}
         onNavigate={(screen) => {
           if (screen === "tasks") setNewTaskMode(false);
           setMobileScreen(screen);
@@ -3173,21 +3175,47 @@ function App(): JSX.Element {
             setError(cause instanceof Error ? cause.message : String(cause));
           });
         }}
-        onAddProject={async (source, value) => {
-          const project = source === "folder"
-            ? await registerProjectFolder({ path: normalizeProjectFolderPath(value) })
-            : await (async () => {
-                const repositoryFullName = value.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
-                const cloned = await cloneGitHubRepository({ repositoryFullName });
-                return registerProjectFolder({ path: cloned.path, name: cloned.name });
-              })();
-          selectProjectState(project.project.id);
+        onOpenProjectSources={async () => {
+          await Promise.all([loadProjectFolders(), loadGitHubProjectState()]);
+        }}
+        onGitHubLogin={startGitHubLogin}
+        onGitHubLogout={async () => {
+          const status = await disconnectGitHub();
+          setGithubStatus(status);
+          setGithubRepositoryGroups([]);
+          setSelectedGithubRepository("");
+        }}
+        onCloneGitHubProject={async (repositoryFullName, parentPath) => {
+          const result = await cloneGitHubProject({
+            repositoryFullName,
+            ...(parentPath ? { parentPath } : {}),
+          });
+          selectProjectState(result.project.id);
           selectTaskState("");
           setTaskRuntime(null);
           setNewTaskMode(false);
           setTitle("");
           setMobileScreen("tasks");
-          await refresh(project.project.id, "");
+          await refresh(result.project.id, "");
+          await loadProjectFolders();
+        }}
+        onRegisterProjectFolder={async (path) => {
+          const result = await registerProjectFolder({ path });
+          selectProjectState(result.project.id);
+          selectTaskState("");
+          setTaskRuntime(null);
+          setNewTaskMode(false);
+          setTitle("");
+          setMobileScreen("tasks");
+          await refresh(result.project.id, "");
+        }}
+        onCreateProjectFolder={async (name, parentPath) => {
+          const result = await createProjectFolder({
+            name,
+            ...(parentPath ? { parentPath } : {}),
+          });
+          await loadProjectFolders();
+          return result.path;
         }}
         onSelectTask={(taskId) => {
           selectTaskState(taskId);

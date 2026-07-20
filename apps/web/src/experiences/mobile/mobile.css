@@ -589,6 +589,8 @@
   z-index: 1;
   width: 100%;
   max-width: 540px;
+  max-height: calc(100dvh - var(--mobile-safe-top));
+  overflow-y: auto;
   padding: 18px 16px calc(var(--mobile-effective-safe-bottom) + 18px);
   border-radius: 20px 20px 0 0;
   background: var(--termes-surface, #fff);
@@ -660,6 +662,134 @@
   color: var(--termes-danger, #c33d53);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.mobileGitHubAuth,
+.mobileProjectPicker,
+.mobileProjectInlineField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.mobileGitHubAuth {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 12px;
+  border: 1px solid var(--termes-border, #d9dde6);
+  border-radius: 12px;
+  background: var(--termes-main, #fbfbfd);
+}
+
+.mobileGitHubAuth > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mobileGitHubAuth strong,
+.mobileProjectPicker > span,
+.mobileProjectInlineField > span {
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mobileGitHubAuth span {
+  overflow: hidden;
+  color: var(--termes-text-tertiary, #858b96);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileGitHubAuth > button,
+.mobileProjectInlineField button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--termes-primary, #2563eb);
+  border-radius: 9px;
+  background: var(--termes-primary-soft, #eaf0ff);
+  color: var(--termes-primary, #2563eb);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mobileGitHubRepositoryList,
+.mobileProjectFolderTree {
+  max-height: 156px;
+  overflow: auto;
+  border: 1px solid var(--termes-border, #d9dde6);
+  border-radius: 11px;
+  background: var(--termes-main, #fbfbfd);
+}
+
+.mobileGitHubRepositoryList > p,
+.mobileProjectFolderEmpty {
+  margin: 0;
+  padding: 12px;
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mobileGitHubRepositoryList > div > small {
+  display: block;
+  padding: 9px 12px 4px;
+  color: var(--termes-text-tertiary, #858b96);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mobileGitHubRepositoryList button,
+.mobileProjectFolderTree button {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--termes-text-secondary, #555a64);
+  text-align: left;
+}
+
+.mobileGitHubRepositoryList button.active,
+.mobileProjectFolderTree button.active {
+  background: var(--termes-primary-soft, #eaf0ff);
+  color: var(--termes-primary, #2563eb);
+}
+
+.mobileGitHubRepositoryList button > span,
+.mobileProjectFolderTree button > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileGitHubRepositoryList button > small,
+.mobileProjectFolderTree button > small {
+  margin-left: auto;
+  color: var(--termes-text-tertiary, #858b96);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.mobileProjectInlineField > div {
+  display: flex;
+  gap: 8px;
+}
+
+.mobileProjectInlineField input {
+  min-width: 0;
 }
 
 .mobileTaskList {

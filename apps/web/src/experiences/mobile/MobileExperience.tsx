@@ -6,6 +6,7 @@ import {
   CircleAlert,
   Download,
   FileCode2,
+  FolderOpen,
   FolderKanban,
   Loader2,
   LogOut,
@@ -31,7 +32,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
   DeviceSummary,
+  GitHubConnectionSummary,
+  GitHubRepositoryGroupSummary,
   PlatformEvent,
+  ProjectFolderSummary,
   ProjectSummary,
   TaskPlanSummary,
   TaskRuntimeSummary,
@@ -89,9 +93,17 @@ interface MobileExperienceProps {
   codexOAuthSession: CodexOAuthDeviceSession | null;
   connectionReady: boolean;
   connectionLabel: string;
+  githubStatus: GitHubConnectionSummary | null;
+  githubRepositoryGroups: GitHubRepositoryGroupSummary[];
+  projectFolders: ProjectFolderSummary[];
   onNavigate: (screen: MobileScreen) => void;
   onSelectProject: (projectId: string) => void;
-  onAddProject: (source: "github" | "folder", value: string) => Promise<void>;
+  onOpenProjectSources: () => Promise<void>;
+  onGitHubLogin: () => void;
+  onGitHubLogout: () => Promise<void>;
+  onCloneGitHubProject: (repositoryFullName: string, parentPath: string) => Promise<void>;
+  onRegisterProjectFolder: (path: string) => Promise<void>;
+  onCreateProjectFolder: (name: string, parentPath: string) => Promise<string>;
   onSelectTask: (taskId: string) => void;
   onStartNewTask: () => void;
   onSearchChange: (value: string) => void;
@@ -150,7 +162,10 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
   const [projectAddDialogOpen, setProjectAddDialogOpen] = useState(false);
   const [projectAddSource, setProjectAddSource] = useState<"github" | "folder">("github");
-  const [projectAddValue, setProjectAddValue] = useState("");
+  const [selectedGithubRepository, setSelectedGithubRepository] = useState("");
+  const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
+  const [folderProjectPath, setFolderProjectPath] = useState("");
+  const [githubNewFolderName, setGithubNewFolderName] = useState("");
   const [projectAddBusy, setProjectAddBusy] = useState(false);
   const [projectAddError, setProjectAddError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -329,18 +344,74 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
 
   async function handleProjectAddSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (!projectAddValue.trim()) return;
+    const isGitHub = projectAddSource === "github";
+    if (isGitHub && !selectedGithubRepository) {
+      setProjectAddError("저장소 목록에서 clone할 GitHub 저장소를 선택해 주세요.");
+      return;
+    }
+    if (!isGitHub && !folderProjectPath) {
+      setProjectAddError("워크스페이스 트리에서 프로젝트 폴더를 선택해 주세요.");
+      return;
+    }
     setProjectAddBusy(true);
     setProjectAddError(null);
     try {
-      await props.onAddProject(projectAddSource, projectAddValue.trim());
-      setProjectAddValue("");
+      if (isGitHub) {
+        await props.onCloneGitHubProject(selectedGithubRepository, githubCloneParentPath);
+      } else {
+        await props.onRegisterProjectFolder(folderProjectPath);
+      }
+      setSelectedGithubRepository("");
+      setGithubCloneParentPath("");
+      setFolderProjectPath("");
+      setGithubNewFolderName("");
       setProjectAddDialogOpen(false);
     } catch (cause) {
       setProjectAddError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setProjectAddBusy(false);
     }
+  }
+
+  async function handleCreateGitHubProjectFolder(): Promise<void> {
+    const name = githubNewFolderName.trim();
+    if (!name) return;
+    setProjectAddBusy(true);
+    setProjectAddError(null);
+    try {
+      const path = await props.onCreateProjectFolder(name, githubCloneParentPath);
+      setGithubCloneParentPath(path);
+      setGithubNewFolderName("");
+    } catch (cause) {
+      setProjectAddError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setProjectAddBusy(false);
+    }
+  }
+
+  async function handleGitHubLogout(): Promise<void> {
+    setProjectAddBusy(true);
+    setProjectAddError(null);
+    try {
+      await props.onGitHubLogout();
+      setSelectedGithubRepository("");
+    } catch (cause) {
+      setProjectAddError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setProjectAddBusy(false);
+    }
+  }
+
+  function openProjectAddDialog(): void {
+    setProjectDrawerOpen(false);
+    setProjectAddError(null);
+    setProjectAddBusy(true);
+    setProjectAddDialogOpen(true);
+    props.onOpenProjectSources()
+      .catch((cause: unknown) => {
+        setProjectAddError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => setProjectAddBusy(false));
   }
 
   function renderHeader(title: string, subtitle: string, backTarget?: MobileScreen): JSX.Element {
@@ -431,11 +502,7 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
           <button
             className="mobileProjectAddButton"
             type="button"
-            onClick={() => {
-              setProjectDrawerOpen(false);
-              setProjectAddError(null);
-              setProjectAddDialogOpen(true);
-            }}
+            onClick={openProjectAddDialog}
           >
             <Plus size={18} /> 프로젝트 추가
           </button>
@@ -461,9 +528,44 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     );
   }
 
+  function renderProjectFolderTree(
+    selectedPath: string,
+    onSelect: (path: string) => void,
+    emptyLabel: string,
+    allowWorkspaceRoot = false,
+  ): JSX.Element {
+    if (props.projectFolders.length === 0) {
+      return <p className="mobileProjectFolderEmpty">{emptyLabel}</p>;
+    }
+    return (
+      <div className="mobileProjectFolderTree" data-testid="mobile-project-folder-tree" role="tree">
+        {allowWorkspaceRoot ? (
+          <button className={selectedPath === "" ? "active" : ""} type="button" onClick={() => onSelect("")}>
+            <FolderOpen size={17} />
+            <span>/</span>
+          </button>
+        ) : null}
+        {props.projectFolders.map((folder) => (
+          <button
+            className={folder.path === selectedPath ? "active" : ""}
+            key={folder.path}
+            type="button"
+            style={{ paddingLeft: `${12 + Math.min(folder.depth, 5) * 14}px` }}
+            onClick={() => onSelect(folder.path)}
+          >
+            <FolderOpen size={17} />
+            <span>{folder.name || `/${folder.path}`}</span>
+            <small>/{folder.path}</small>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   function renderProjectAddDialog(): JSX.Element | null {
     if (!projectAddDialogOpen) return null;
     const isGitHub = projectAddSource === "github";
+    const githubConnected = props.githubStatus?.connected === true;
     return (
       <div className="mobileProjectAddLayer" role="presentation">
         <button className="mobileProjectAddBackdrop" type="button" aria-label="프로젝트 추가 닫기" disabled={projectAddBusy} onClick={() => setProjectAddDialogOpen(false)} />
@@ -473,25 +575,81 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
             <button className="mobileIconButton" type="button" aria-label="프로젝트 추가 닫기" disabled={projectAddBusy} onClick={() => setProjectAddDialogOpen(false)}><X size={20} /></button>
           </header>
           <div className="mobileProjectAddTabs" role="tablist" aria-label="프로젝트 추가 방식">
-            <button className={isGitHub ? "active" : ""} type="button" onClick={() => { setProjectAddSource("github"); setProjectAddValue(""); setProjectAddError(null); }}>GitHub 프로젝트</button>
-            <button className={!isGitHub ? "active" : ""} type="button" onClick={() => { setProjectAddSource("folder"); setProjectAddValue(""); setProjectAddError(null); }}>폴더 프로젝트</button>
+            <button className={isGitHub ? "active" : ""} type="button" onClick={() => { setProjectAddSource("github"); setProjectAddError(null); }}>GitHub 프로젝트</button>
+            <button className={!isGitHub ? "active" : ""} type="button" onClick={() => { setProjectAddSource("folder"); setProjectAddError(null); }}>폴더 프로젝트</button>
           </div>
-          <label>
-            <span>{isGitHub ? "GitHub 저장소" : "워크스페이스 폴더"}</span>
-            <input
-              autoCapitalize="none"
-              autoCorrect="off"
-              disabled={projectAddBusy}
-              onChange={(event) => setProjectAddValue(event.target.value)}
-              placeholder={isGitHub ? "owner/repository" : "예: clients/my-app"}
-              value={projectAddValue}
-            />
-          </label>
-          <p>{isGitHub ? "저장소를 clone한 뒤 프로젝트로 등록합니다." : "이미 있는 폴더를 현재 워크스페이스 프로젝트로 등록합니다."}</p>
+
+          {isGitHub ? (
+            <>
+              <section className="mobileGitHubAuth" aria-label="GitHub 인증 관리">
+                <div>
+                  <strong>GitHub 인증 관리</strong>
+                  <span>{githubConnected ? `${props.githubStatus?.login || "GitHub"} 연결됨` : "GitHub 로그인이 필요합니다."}</span>
+                </div>
+                {githubConnected ? (
+                  <button disabled={projectAddBusy} type="button" onClick={() => void handleGitHubLogout()}>
+                    연결 해제
+                  </button>
+                ) : props.githubStatus?.browserOAuthEnabled ? (
+                  <button disabled={projectAddBusy} type="button" onClick={props.onGitHubLogin}>
+                    GitHub 로그인
+                  </button>
+                ) : null}
+              </section>
+              {!githubConnected && !props.githubStatus?.browserOAuthEnabled ? (
+                <p>GitHub Browser OAuth 설정이 필요합니다.</p>
+              ) : null}
+              <section className="mobileProjectPicker">
+                <span>GitHub 저장소 선택</span>
+                <div className="mobileGitHubRepositoryList" aria-label="GitHub 저장소 목록">
+                  {!githubConnected ? <p>GitHub 로그인 후 저장소 목록을 확인할 수 있습니다.</p> : props.githubRepositoryGroups.flatMap((group) => group.repositories).length === 0 ? <p>표시할 저장소가 없습니다.</p> : props.githubRepositoryGroups.map((group) => (
+                    <div key={group.groupId}>
+                      <small>{group.label}</small>
+                      {group.repositories.map((repository) => (
+                        <button
+                          className={selectedGithubRepository === repository.fullName ? "active" : ""}
+                          data-testid="mobile-github-repository-select"
+                          key={repository.fullName}
+                          type="button"
+                          onClick={() => setSelectedGithubRepository(repository.fullName)}
+                        >
+                          <span>{repository.fullName}</span>
+                          <small>{repository.visibility} · {repository.defaultBranch}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="mobileProjectPicker">
+                <span>워크스페이스 클론 폴더</span>
+                {renderProjectFolderTree(githubCloneParentPath, setGithubCloneParentPath, "새 폴더를 추가하거나 Workspace root를 선택할 수 있습니다.", true)}
+              </section>
+              <label className="mobileProjectInlineField">
+                <span>워크스페이스 폴더 추가</span>
+                <div>
+                  <input
+                    disabled={projectAddBusy}
+                    onChange={(event) => setGithubNewFolderName(event.target.value)}
+                    placeholder="예: clients/new-project"
+                    value={githubNewFolderName}
+                  />
+                  <button disabled={projectAddBusy || !githubNewFolderName.trim()} type="button" onClick={() => void handleCreateGitHubProjectFolder()}>
+                    폴더 추가
+                  </button>
+                </div>
+              </label>
+            </>
+          ) : (
+            <section className="mobileProjectPicker">
+              <span>워크스페이스 프로젝트 폴더 선택</span>
+              {renderProjectFolderTree(folderProjectPath, setFolderProjectPath, "프로젝트 폴더를 먼저 추가해 주세요.")}
+            </section>
+          )}
           {projectAddError ? <div className="mobileProjectAddError" role="alert">{projectAddError}</div> : null}
-          <button className="mobilePrimaryButton" disabled={projectAddBusy || !projectAddValue.trim()} type="submit">
+          <button className="mobilePrimaryButton" data-testid={isGitHub ? "mobile-github-clone-selected" : "mobile-folder-project-select"} disabled={projectAddBusy || (isGitHub ? !githubConnected || !selectedGithubRepository : !folderProjectPath)} type="submit">
             {projectAddBusy ? <Loader2 className="spinIcon" size={18} /> : <Plus size={18} />}
-            {projectAddBusy ? "추가 중" : "프로젝트 추가"}
+            {projectAddBusy ? "처리 중" : isGitHub ? "Clone 후 프로젝트 폴더로 선택" : "프로젝트 폴더로 선택"}
           </button>
         </form>
       </div>

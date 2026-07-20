@@ -17,7 +17,8 @@ test("모바일 프로젝트 드로어는 프로젝트 목록 선택과 GitHub·
   assert.match(mobileExperience, /data-testid="mobile-project-add-dialog"/);
   assert.match(mobileExperience, /GitHub 프로젝트/);
   assert.match(mobileExperience, /폴더 프로젝트/);
-  assert.match(mobileExperience, /props\.onAddProject/);
+  assert.match(mobileExperience, /props\.onCloneGitHubProject/);
+  assert.match(mobileExperience, /props\.onRegisterProjectFolder/);
   assert.match(mobileCss, /\.mobileProjectDrawer/);
   assert.match(mobileCss, /\.mobileProjectAddDialog/);
 });
