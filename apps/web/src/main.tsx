@@ -67,6 +67,7 @@ import type {
 } from "@termes/shared";
 import {
   connectEvents,
+  cloneGitHubProject,
   cloneGitHubRepository,
   createDevice,
   createHermesChatCompletion,
@@ -125,7 +126,6 @@ import {
   stopHermesRun,
   streamHermesChatCompletion,
   updateDevice,
-  type GitHubCloneResult,
   type HermesStreamEvent,
   type CodexOAuthDeviceSession,
   type TermesAccountOption,
@@ -611,10 +611,9 @@ function App(): JSX.Element {
   const [githubStatus, setGithubStatus] = useState<GitHubConnectionSummary | null>(null);
   const [githubRepositoryGroups, setGithubRepositoryGroups] = useState<GitHubRepositoryGroupSummary[]>([]);
   const [githubSearch, setGithubSearch] = useState("");
-  const [githubManualRepository, setGithubManualRepository] = useState("");
+  const [selectedGithubRepository, setSelectedGithubRepository] = useState("");
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
   const [githubNewFolderName, setGithubNewFolderName] = useState("");
-  const [pendingGithubClone, setPendingGithubClone] = useState<GitHubCloneResult | null>(null);
   const [githubDeviceLogin, setGithubDeviceLogin] = useState<GitHubDeviceLoginStartSummary | null>(null);
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubMessage, setGithubMessage] = useState("GitHub 로그인 후 저장소를 clone해서 프로젝트로 등록할 수 있습니다.");
@@ -1192,7 +1191,7 @@ function App(): JSX.Element {
 
   function openProjectDrawer(mode: "folder" | "github" = "folder"): void {
     setProjectCreateMode(mode);
-    setPendingGithubClone(null);
+    setSelectedGithubRepository("");
     setGithubDeviceLogin(null);
     setProjectPanelOpen(true);
     setFolderMessage("워크스페이스 폴더를 선택하거나 새로 만들어 프로젝트로 등록할 수 있습니다.");
@@ -1263,6 +1262,7 @@ function App(): JSX.Element {
       const status = await disconnectGitHub();
       setGithubStatus(status);
       setGithubRepositoryGroups([]);
+      setSelectedGithubRepository("");
       setGithubDeviceLogin(null);
       setGithubMessage("GitHub 연결을 해제했습니다.");
     } catch (cause) {
@@ -1355,45 +1355,22 @@ function App(): JSX.Element {
     }
 
     setGithubBusy(true);
-    setGithubMessage(`${fullName} 저장소를 clone하는 중입니다.`);
+    setGithubMessage(`${fullName} 저장소를 clone하고 프로젝트 폴더로 선택하는 중입니다.`);
     try {
-      const result = await cloneGitHubRepository({
+      const result = await cloneGitHubProject({
         repositoryFullName: fullName,
         ...(githubCloneParentPath.trim() ? { parentPath: githubCloneParentPath.trim() } : {}),
       });
-      setPendingGithubClone(result);
-      setGithubManualRepository("");
-      setGithubCloneParentPath(result.path);
-      setGithubMessage(`${result.path}에 clone했습니다. 프로젝트 등록을 눌러 목록에 추가해 주세요.`);
-    } catch (cause) {
-      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setGithubBusy(false);
-    }
-  }
-
-  async function handleRegisterPendingGitHubClone(): Promise<void> {
-    if (!pendingGithubClone) {
-      setGithubMessage("먼저 GitHub 저장소를 clone해 주세요.");
-      return;
-    }
-
-    setGithubBusy(true);
-    setGithubMessage(`${pendingGithubClone.path} clone 결과를 프로젝트로 등록하는 중입니다.`);
-    try {
-      const result = await registerProjectFolder({
-        path: pendingGithubClone.path,
-        name: pendingGithubClone.name,
-      });
-      setPendingGithubClone(null);
+      setSelectedGithubRepository("");
       setGithubCloneParentPath("");
       setProjectPanelOpen(false);
       setProjectCreateMode("folder");
-      setGithubMessage(`${pendingGithubClone.path} 프로젝트를 등록했습니다.`);
+      setGithubMessage(`${result.repositoryFullName}을 ${result.workspacePath}에 clone하고 프로젝트 폴더로 선택했습니다.`);
       selectProjectState(result.project.id);
       selectTaskState("");
       setTaskRuntime(null);
       await refresh(result.project.id, "");
+      await loadProjectFolders();
     } catch (cause) {
       setGithubMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -3377,7 +3354,7 @@ function App(): JSX.Element {
             >
               <header className="projectDrawerHeader">
                 <div>
-                  <span className="sectionLabel">Folder Workspace</span>
+                  <span className="sectionLabel">{projectCreateMode === "github" ? "GitHub Workspace" : "Folder Workspace"}</span>
                   <h2>새 프로젝트 등록</h2>
                 </div>
                 <button className="aliasIconButton" type="button" title="닫기" onClick={() => setProjectPanelOpen(false)}>
@@ -3392,7 +3369,7 @@ function App(): JSX.Element {
                   onClick={() => setProjectCreateMode("folder")}
                 >
                   <FolderOpen size={15} />
-                  Folder
+                  폴더 프로젝트
                 </button>
                 <button
                   type="button"
@@ -3400,7 +3377,7 @@ function App(): JSX.Element {
                   onClick={() => setProjectCreateMode("github")}
                 >
                   <Github size={15} />
-                  GitHub clone
+                  GitHub 프로젝트
                 </button>
               </div>
 
@@ -3466,7 +3443,7 @@ function App(): JSX.Element {
                       }}
                     >
                       <FolderPlus size={15} />
-                      프로젝트 등록
+                      프로젝트 폴더로 선택
                     </button>
                   </div>
                 </div>
@@ -3475,7 +3452,7 @@ function App(): JSX.Element {
                   <section className="githubAuthCard">
                     <div>
                       <Github size={18} />
-                      <strong>{githubConnected ? `${githubStatus?.login || "GitHub"} 연결됨` : "GitHub 로그인이 필요합니다"}</strong>
+                      <strong>{githubConnected ? `GitHub 인증 관리 · ${githubStatus?.login || "GitHub"} 연결됨` : "GitHub 인증 관리 · 로그인이 필요합니다"}</strong>
                     </div>
                     <div className="githubAuthActions">
                       {githubConnected ? (
@@ -3559,93 +3536,6 @@ function App(): JSX.Element {
                   ) : null}
 
                   <label className="projectDrawerField">
-                    <span>Clone 상위 폴더</span>
-                    <input
-                      value={githubCloneParentPath}
-                      onChange={(event) => setGithubCloneParentPath(normalizeProjectFolderPath(event.target.value))}
-                      placeholder="비워두면 /projects/<repo>에 생성됩니다"
-                      data-testid="github-clone-parent-input"
-                    />
-                  </label>
-
-                  <ProjectDirectoryTree
-                    folders={projectFolders}
-                    selectedPath={githubCloneParentPath}
-                    onSelect={setGithubCloneParentPath}
-                    emptyLabel="clone 위치로 선택할 폴더가 없습니다."
-                  />
-
-                  <label className="projectDrawerField">
-                    <span>새 폴더 생성</span>
-                    <div className="githubManualRow">
-                      <input
-                        value={githubNewFolderName}
-                        onChange={(event) => setGithubNewFolderName(event.target.value)}
-                        placeholder="예: clients/new-project"
-                        data-testid="github-new-folder-input"
-                      />
-                      <button
-                        className="aliasActionButton secondary"
-                        type="button"
-                        data-testid="github-create-folder"
-                        disabled={githubBusy || !githubNewFolderName.trim()}
-                        onClick={() => {
-                          handleCreateGitHubProjectFolder().catch((cause: unknown) => {
-                            setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-                          });
-                        }}
-                      >
-                        생성
-                      </button>
-                    </div>
-                  </label>
-
-                  {pendingGithubClone ? (
-                    <section className="githubCloneCompleteCard">
-                      <div>
-                        <strong>{pendingGithubClone.repositoryFullName}</strong>
-                        <span>{pendingGithubClone.path}에 clone했습니다.</span>
-                      </div>
-                      <button
-                        className="aliasActionButton primary"
-                        type="button"
-                        disabled={githubBusy}
-                        onClick={() => {
-                          handleRegisterPendingGitHubClone().catch((cause: unknown) => {
-                            setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-                          });
-                        }}
-                      >
-                        프로젝트 등록
-                      </button>
-                    </section>
-                  ) : null}
-
-                  <label className="projectDrawerField">
-                    <span>저장소 직접 입력</span>
-                    <div className="githubManualRow">
-                      <input
-                        value={githubManualRepository}
-                        onChange={(event) => setGithubManualRepository(event.target.value)}
-                        placeholder="owner/repo"
-                        data-testid="github-repository-input"
-                      />
-                      <button
-                        className="aliasActionButton primary"
-                        type="button"
-                        disabled={githubBusy || !githubConnected || !githubManualRepository.trim()}
-                        onClick={() => {
-                          handleCloneGitHubProject(githubManualRepository).catch((cause: unknown) => {
-                            setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-                          });
-                        }}
-                      >
-                        Clone
-                      </button>
-                    </div>
-                  </label>
-
-                  <label className="projectDrawerField">
                     <span>저장소 검색</span>
                     <input
                       value={githubSearch}
@@ -3667,29 +3557,81 @@ function App(): JSX.Element {
                             <span>{group.error || `@${group.owner}`}</span>
                           </div>
                           {group.repositories.map((repository) => (
-                            <article className="githubRepositoryRow" key={repository.fullName}>
+                            <button
+                              className={selectedGithubRepository === repository.fullName ? "githubRepositoryRow active" : "githubRepositoryRow"}
+                              data-testid="github-repository-select"
+                              key={repository.fullName}
+                              type="button"
+                              onClick={() => setSelectedGithubRepository(repository.fullName)}
+                            >
                               <div>
                                 <strong>{repository.fullName}</strong>
                                 <span>{repository.visibility} · {repository.defaultBranch}</span>
                               </div>
-                              <button
-                                className="aliasActionButton primary"
-                                type="button"
-                                disabled={githubBusy}
-                                onClick={() => {
-                                  handleCloneGitHubProject(repository.fullName).catch((cause: unknown) => {
-                                    setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-                                  });
-                                }}
-                              >
-                                Clone
-                              </button>
-                            </article>
+                              <span>{selectedGithubRepository === repository.fullName ? "선택됨" : "선택"}</span>
+                            </button>
                           ))}
                         </section>
                       ))
                     )}
                   </div>
+
+                  <section className="githubCloneTarget">
+                    <div>
+                      <span>선택한 저장소</span>
+                      <strong>{selectedGithubRepository || "저장소 목록에서 선택해 주세요."}</strong>
+                    </div>
+
+                    <div className="projectDrawerField">
+                      <span>워크스페이스 클론 폴더</span>
+                      <ProjectDirectoryTree
+                        folders={projectFolders}
+                        selectedPath={githubCloneParentPath}
+                        onSelect={setGithubCloneParentPath}
+                        emptyLabel="clone 위치로 선택할 폴더가 없습니다. 새 폴더를 추가해 주세요."
+                      />
+                    </div>
+
+                    <label className="projectDrawerField">
+                      <span>워크스페이스 폴더 추가</span>
+                      <div className="githubManualRow">
+                        <input
+                          value={githubNewFolderName}
+                          onChange={(event) => setGithubNewFolderName(event.target.value)}
+                          placeholder="예: clients/new-project"
+                          data-testid="github-new-folder-input"
+                        />
+                        <button
+                          className="aliasActionButton secondary"
+                          type="button"
+                          data-testid="github-create-folder"
+                          disabled={githubBusy || !githubNewFolderName.trim()}
+                          onClick={() => {
+                            handleCreateGitHubProjectFolder().catch((cause: unknown) => {
+                              setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                            });
+                          }}
+                        >
+                          폴더 추가
+                        </button>
+                      </div>
+                    </label>
+
+                    <button
+                      className="aliasActionButton primary fullWidth"
+                      data-testid="github-clone-selected"
+                      type="button"
+                      disabled={githubBusy || !githubConnected || !selectedGithubRepository}
+                      onClick={() => {
+                        handleCloneGitHubProject(selectedGithubRepository).catch((cause: unknown) => {
+                          setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+                        });
+                      }}
+                    >
+                      <Github size={15} />
+                      Clone 후 프로젝트 폴더로 선택
+                    </button>
+                  </section>
                 </div>
               )}
             </section>
