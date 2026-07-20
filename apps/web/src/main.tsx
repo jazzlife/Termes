@@ -155,6 +155,7 @@ import "./styles.css";
 
 type WorkbenchTab = "diff" | "terminal" | "files" | "logs" | "hermes";
 type MobileView = "list" | "chat" | "workbench";
+type ProjectFolderCreateTarget = "folder" | "github";
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -604,7 +605,8 @@ function App(): JSX.Element {
   const [projectWorkspacePath, setProjectWorkspacePath] = useState("");
   const [projectFolders, setProjectFolders] = useState<ProjectFolderSummary[]>([]);
   const [folderPath, setFolderPath] = useState("");
-  const [folderNewFolderName, setFolderNewFolderName] = useState("");
+  const [projectFolderCreateDialog, setProjectFolderCreateDialog] = useState<ProjectFolderCreateTarget | null>(null);
+  const [projectFolderCreateName, setProjectFolderCreateName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderMessage, setFolderMessage] = useState("워크스페이스 폴더를 선택하거나 새로 만들어 프로젝트로 등록할 수 있습니다.");
   const [githubStatus, setGithubStatus] = useState<GitHubConnectionSummary | null>(null);
@@ -612,7 +614,6 @@ function App(): JSX.Element {
   const [githubSearch, setGithubSearch] = useState("");
   const [selectedGithubRepository, setSelectedGithubRepository] = useState("");
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
-  const [githubNewFolderName, setGithubNewFolderName] = useState("");
   const [githubDeviceLogin, setGithubDeviceLogin] = useState<GitHubDeviceLoginStartSummary | null>(null);
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubMessage, setGithubMessage] = useState("GitHub 로그인 후 저장소를 clone해서 프로젝트로 등록할 수 있습니다.");
@@ -1271,53 +1272,39 @@ function App(): JSX.Element {
     }
   }
 
-  async function handleCreateGitHubProjectFolder(): Promise<void> {
-    const name = githubNewFolderName.trim();
-    if (!name) {
-      setGithubMessage("생성할 폴더 이름을 입력해 주세요.");
-      return;
-    }
-
-    setGithubBusy(true);
-    setGithubMessage("clone 상위 폴더를 생성하는 중입니다.");
-    try {
-      const created = await createProjectFolder({
-        ...(githubCloneParentPath.trim() ? { parentPath: githubCloneParentPath.trim() } : {}),
-        name,
-      });
-      setGithubCloneParentPath(created.path);
-      setGithubNewFolderName("");
-      setGithubMessage(`${created.path} 폴더를 생성했습니다.`);
-      await loadProjectFolders();
-    } catch (cause) {
-      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setGithubBusy(false);
-    }
+  function openProjectFolderCreateDialog(target: ProjectFolderCreateTarget): void {
+    setProjectFolderCreateName("");
+    setProjectFolderCreateDialog(target);
   }
 
-  async function handleCreateFolderWorkspace(): Promise<void> {
-    const name = folderNewFolderName.trim();
-    if (!name) {
-      setFolderMessage("생성할 폴더 이름을 입력해 주세요.");
-      return;
-    }
+  async function handleCreateProjectFolderFromDialog(): Promise<void> {
+    const target = projectFolderCreateDialog;
+    const name = projectFolderCreateName.trim();
+    if (!target || !name) return;
 
-    setFolderBusy(true);
-    setFolderMessage("워크스페이스 폴더를 생성하는 중입니다.");
+    const parentPath = target === "github" ? githubCloneParentPath : folderPath;
+    const setBusy = target === "github" ? setGithubBusy : setFolderBusy;
+    const setMessage = target === "github" ? setGithubMessage : setFolderMessage;
+    setBusy(true);
+    setMessage("선택한 폴더 아래에 새 폴더를 생성하는 중입니다.");
     try {
       const created = await createProjectFolder({
-        ...(folderPath.trim() ? { parentPath: folderPath.trim() } : {}),
+        ...(parentPath.trim() ? { parentPath: parentPath.trim() } : {}),
         name,
       });
-      setFolderPath(created.path);
-      setFolderNewFolderName("");
+      if (target === "github") {
+        setGithubCloneParentPath(created.path);
+      } else {
+        setFolderPath(created.path);
+      }
       await loadProjectFolders();
-      setFolderMessage(`${projectFolderLabel(created.path)} 폴더를 생성했습니다.`);
+      setMessage(`${projectFolderLabel(created.path)} 폴더를 선택했습니다.`);
+      setProjectFolderCreateDialog(null);
+      setProjectFolderCreateName("");
     } catch (cause) {
-      setFolderMessage(cause instanceof Error ? cause.message : String(cause));
+      setMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setFolderBusy(false);
+      setBusy(false);
     }
   }
 
@@ -3413,47 +3400,19 @@ function App(): JSX.Element {
                 <div className="projectFolderPanel">
                   <p className="projectDrawerMessage">{folderBusy ? "폴더 작업 처리 중..." : folderMessage}</p>
 
-                  <label className="projectDrawerField">
-                    <span>등록할 폴더</span>
-                    <input
-                      value={folderPath}
-                      onChange={(event) => setFolderPath(normalizeProjectFolderPath(event.target.value))}
-                      placeholder="예: clients/my-app"
-                      data-testid="folder-register-path-input"
-                    />
-                  </label>
-
-                  <div className="githubManualRow">
-                    <label className="projectDrawerField">
-                      <span>새 폴더 생성</span>
-                      <input
-                        value={folderNewFolderName}
-                        onChange={(event) => setFolderNewFolderName(event.target.value)}
-                        placeholder="예: clients/new-project"
-                        data-testid="folder-new-folder-input"
-                      />
-                    </label>
-                    <button
-                      className="aliasActionButton secondary"
-                      type="button"
-                      data-testid="create-folder-workspace"
-                      disabled={folderBusy || !folderNewFolderName.trim()}
-                      onClick={() => {
-                        handleCreateFolderWorkspace().catch((cause: unknown) => {
-                          setFolderMessage(cause instanceof Error ? cause.message : String(cause));
-                        });
-                      }}
-                    >
-                      생성
-                    </button>
-                  </div>
-
                   <ProjectDirectoryTree
                     folders={projectFolders}
                     selectedPath={folderPath}
                     onSelect={setFolderPath}
                     emptyLabel="등록할 수 있는 폴더가 없습니다. 새 폴더를 먼저 생성해 주세요."
                   />
+
+                  <div className="projectFolderTreeActions">
+                    <span>{folderPath ? `${projectFolderLabel(folderPath)} 선택됨` : "Workspace root 선택됨"}</span>
+                    <button className="aliasActionButton secondary" type="button" disabled={folderBusy} onClick={() => openProjectFolderCreateDialog("folder")}>
+                      <FolderPlus size={15} /> 새 폴더
+                    </button>
+                  </div>
 
                   <div className="projectDrawerActions">
                     <button className="aliasActionButton secondary" type="button" onClick={() => setProjectPanelOpen(false)}>
@@ -3620,30 +3579,12 @@ function App(): JSX.Element {
                       />
                     </div>
 
-                    <label className="projectDrawerField">
-                      <span>워크스페이스 폴더 추가</span>
-                      <div className="githubManualRow">
-                        <input
-                          value={githubNewFolderName}
-                          onChange={(event) => setGithubNewFolderName(event.target.value)}
-                          placeholder="예: clients/new-project"
-                          data-testid="github-new-folder-input"
-                        />
-                        <button
-                          className="aliasActionButton secondary"
-                          type="button"
-                          data-testid="github-create-folder"
-                          disabled={githubBusy || !githubNewFolderName.trim()}
-                          onClick={() => {
-                            handleCreateGitHubProjectFolder().catch((cause: unknown) => {
-                              setGithubMessage(cause instanceof Error ? cause.message : String(cause));
-                            });
-                          }}
-                        >
-                          폴더 추가
-                        </button>
-                      </div>
-                    </label>
+                    <div className="projectFolderTreeActions">
+                      <span>{githubCloneParentPath ? `${projectFolderLabel(githubCloneParentPath)} 선택됨` : "Workspace root 선택됨"}</span>
+                      <button className="aliasActionButton secondary" type="button" disabled={githubBusy} onClick={() => openProjectFolderCreateDialog("github")}>
+                        <FolderPlus size={15} /> 새 폴더
+                      </button>
+                    </div>
 
                     <button
                       className="aliasActionButton primary fullWidth"
@@ -3664,6 +3605,55 @@ function App(): JSX.Element {
               )}
             </section>
           </form>,
+          document.body,
+        ) : null}
+
+        {projectFolderCreateDialog ? createPortal(
+          <div className="projectFolderCreateBackdrop" role="presentation" onClick={() => setProjectFolderCreateDialog(null)}>
+            <form
+              className="projectFolderCreateDialog"
+              data-testid="project-folder-create-dialog"
+              aria-label="새 폴더 생성"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleCreateProjectFolderFromDialog().catch((cause: unknown) => {
+                  const setMessage = projectFolderCreateDialog === "github" ? setGithubMessage : setFolderMessage;
+                  setMessage(cause instanceof Error ? cause.message : String(cause));
+                });
+              }}
+            >
+              <header>
+                <div>
+                  <span className="sectionLabel">Workspace folder</span>
+                  <h2>새 폴더</h2>
+                </div>
+                <button className="aliasIconButton" type="button" title="닫기" onClick={() => setProjectFolderCreateDialog(null)}>
+                  <X size={17} />
+                </button>
+              </header>
+              <p>{projectFolderCreateDialog === "github" ? projectFolderLabel(githubCloneParentPath) : projectFolderLabel(folderPath)} 아래에 생성합니다.</p>
+              <label className="projectDrawerField">
+                <span>폴더 이름</span>
+                <input
+                  autoFocus
+                  value={projectFolderCreateName}
+                  onChange={(event) => setProjectFolderCreateName(event.target.value)}
+                  placeholder="예: new-project"
+                />
+              </label>
+              <div className="projectDrawerActions">
+                <button className="aliasActionButton secondary" type="button" onClick={() => setProjectFolderCreateDialog(null)}>취소</button>
+                <button
+                  className="aliasActionButton primary"
+                  type="submit"
+                  disabled={projectFolderCreateDialog === "github" ? githubBusy || !projectFolderCreateName.trim() : folderBusy || !projectFolderCreateName.trim()}
+                >
+                  <FolderPlus size={15} /> 생성
+                </button>
+              </div>
+            </form>
+          </div>,
           document.body,
         ) : null}
 

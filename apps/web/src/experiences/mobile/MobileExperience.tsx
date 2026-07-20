@@ -165,7 +165,8 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const [selectedGithubRepository, setSelectedGithubRepository] = useState("");
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
   const [folderProjectPath, setFolderProjectPath] = useState("");
-  const [githubNewFolderName, setGithubNewFolderName] = useState("");
+  const [mobileFolderCreateDialog, setMobileFolderCreateDialog] = useState<"github" | "folder" | null>(null);
+  const [mobileFolderCreateName, setMobileFolderCreateName] = useState("");
   const [projectAddBusy, setProjectAddBusy] = useState(false);
   const [projectAddError, setProjectAddError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -364,7 +365,6 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
       setSelectedGithubRepository("");
       setGithubCloneParentPath("");
       setFolderProjectPath("");
-      setGithubNewFolderName("");
       setProjectAddDialogOpen(false);
     } catch (cause) {
       setProjectAddError(cause instanceof Error ? cause.message : String(cause));
@@ -373,15 +373,27 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     }
   }
 
-  async function handleCreateGitHubProjectFolder(): Promise<void> {
-    const name = githubNewFolderName.trim();
-    if (!name) return;
+  function openMobileFolderCreateDialog(target: "github" | "folder"): void {
+    setMobileFolderCreateName("");
+    setMobileFolderCreateDialog(target);
+  }
+
+  async function handleCreateMobileProjectFolder(): Promise<void> {
+    const target = mobileFolderCreateDialog;
+    const name = mobileFolderCreateName.trim();
+    if (!target || !name) return;
+    const parentPath = target === "github" ? githubCloneParentPath : folderProjectPath;
     setProjectAddBusy(true);
     setProjectAddError(null);
     try {
-      const path = await props.onCreateProjectFolder(name, githubCloneParentPath);
-      setGithubCloneParentPath(path);
-      setGithubNewFolderName("");
+      const path = await props.onCreateProjectFolder(name, parentPath);
+      if (target === "github") {
+        setGithubCloneParentPath(path);
+      } else {
+        setFolderProjectPath(path);
+      }
+      setMobileFolderCreateDialog(null);
+      setMobileFolderCreateName("");
     } catch (cause) {
       setProjectAddError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -625,25 +637,19 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
                 <span>워크스페이스 클론 폴더</span>
                 {renderProjectFolderTree(githubCloneParentPath, setGithubCloneParentPath, "새 폴더를 추가하거나 Workspace root를 선택할 수 있습니다.", true)}
               </section>
-              <label className="mobileProjectInlineField">
-                <span>워크스페이스 폴더 추가</span>
-                <div>
-                  <input
-                    disabled={projectAddBusy}
-                    onChange={(event) => setGithubNewFolderName(event.target.value)}
-                    placeholder="예: clients/new-project"
-                    value={githubNewFolderName}
-                  />
-                  <button disabled={projectAddBusy || !githubNewFolderName.trim()} type="button" onClick={() => void handleCreateGitHubProjectFolder()}>
-                    폴더 추가
-                  </button>
-                </div>
-              </label>
+              <div className="mobileProjectFolderActions">
+                <span>{githubCloneParentPath ? `/${githubCloneParentPath} 선택됨` : "Workspace root 선택됨"}</span>
+                <button disabled={projectAddBusy} type="button" onClick={() => openMobileFolderCreateDialog("github")}>새 폴더</button>
+              </div>
             </>
           ) : (
             <section className="mobileProjectPicker">
               <span>워크스페이스 프로젝트 폴더 선택</span>
               {renderProjectFolderTree(folderProjectPath, setFolderProjectPath, "프로젝트 폴더를 먼저 추가해 주세요.")}
+              <div className="mobileProjectFolderActions">
+                <span>{folderProjectPath ? `/${folderProjectPath} 선택됨` : "폴더를 선택해 주세요."}</span>
+                <button disabled={projectAddBusy} type="button" onClick={() => openMobileFolderCreateDialog("folder")}>새 폴더</button>
+              </div>
             </section>
           )}
           {projectAddError ? <div className="mobileProjectAddError" role="alert">{projectAddError}</div> : null}
@@ -652,6 +658,25 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
             {projectAddBusy ? "처리 중" : isGitHub ? "Clone 후 프로젝트 폴더로 선택" : "프로젝트 폴더로 선택"}
           </button>
         </form>
+        {mobileFolderCreateDialog ? (
+          <div className="mobileProjectFolderCreateLayer" role="presentation" onClick={() => setMobileFolderCreateDialog(null)}>
+            <form
+              className="mobileProjectFolderCreateDialog"
+              data-testid="mobile-project-folder-create-dialog"
+              aria-label="새 폴더 생성"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateMobileProjectFolder();
+              }}
+            >
+              <header><div><span>WORKSPACE FOLDER</span><h2>새 폴더</h2></div><button className="mobileIconButton" type="button" aria-label="새 폴더 닫기" onClick={() => setMobileFolderCreateDialog(null)}><X size={20} /></button></header>
+              <p>{mobileFolderCreateDialog === "github" ? `/${githubCloneParentPath || ""}` : `/${folderProjectPath || ""}`} 아래에 생성합니다.</p>
+              <input autoFocus disabled={projectAddBusy} onChange={(event) => setMobileFolderCreateName(event.target.value)} placeholder="폴더 이름" value={mobileFolderCreateName} />
+              <div><button type="button" onClick={() => setMobileFolderCreateDialog(null)}>취소</button><button disabled={projectAddBusy || !mobileFolderCreateName.trim()} type="submit">생성</button></div>
+            </form>
+          </div>
+        ) : null}
       </div>
     );
   }

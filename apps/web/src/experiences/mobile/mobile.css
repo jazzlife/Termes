@@ -665,8 +665,7 @@
 }
 
 .mobileGitHubAuth,
-.mobileProjectPicker,
-.mobileProjectInlineField {
+.mobileProjectPicker {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -691,8 +690,7 @@
 }
 
 .mobileGitHubAuth strong,
-.mobileProjectPicker > span,
-.mobileProjectInlineField > span {
+.mobileProjectPicker > span {
   color: var(--termes-text-secondary, #555a64);
   font-size: 13px;
   font-weight: 700;
@@ -707,7 +705,7 @@
 }
 
 .mobileGitHubAuth > button,
-.mobileProjectInlineField button {
+.mobileProjectFolderActions button {
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid var(--termes-primary, #2563eb);
@@ -783,13 +781,82 @@
   white-space: nowrap;
 }
 
-.mobileProjectInlineField > div {
+.mobileProjectFolderActions {
   display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.mobileProjectInlineField input {
+.mobileProjectFolderActions > span {
   min-width: 0;
+  overflow: hidden;
+  color: var(--termes-text-tertiary, #858b96);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileProjectFolderCreateLayer {
+  position: fixed;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(12, 16, 26, 0.5);
+}
+
+.mobileProjectFolderCreateDialog {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 14px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--termes-surface, #fff);
+  box-shadow: 0 20px 56px rgba(12, 16, 26, 0.3);
+}
+
+.mobileProjectFolderCreateDialog header,
+.mobileProjectFolderCreateDialog header > div,
+.mobileProjectFolderCreateDialog > div:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobileProjectFolderCreateDialog header > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobileProjectFolderCreateDialog h2,
+.mobileProjectFolderCreateDialog p {
+  margin: 0;
+}
+
+.mobileProjectFolderCreateDialog p {
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 12px;
+}
+
+.mobileProjectFolderCreateDialog > div:last-child button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--termes-border, #d9dde6);
+  border-radius: 10px;
+  background: var(--termes-main, #fbfbfd);
+  color: var(--termes-text-secondary, #555a64);
+  font-weight: 700;
+}
+
+.mobileProjectFolderCreateDialog > div:last-child button[type="submit"] {
+  border-color: var(--termes-primary, #2563eb);
+  background: var(--termes-primary, #2563eb);
+  color: #fff;
 }
 
 .mobileTaskList {

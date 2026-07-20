@@ -26,3 +26,11 @@ test("모바일 프로젝트 흐름은 App의 원자적 clone·폴더 등록 경
   assert.match(appSource, /onRegisterProjectFolder=\{async \(path\) => \{/);
   assert.match(appSource, /onCreateProjectFolder=\{async \(name, parentPath\) => \{/);
 });
+
+test("모바일 폴더 트리는 선택한 폴더의 하위 폴더를 팝업에서만 만든다", () => {
+  assert.match(mobileSource, /const \[mobileFolderCreateDialog, setMobileFolderCreateDialog\] = useState/);
+  assert.match(mobileSource, /data-testid="mobile-project-folder-create-dialog"/);
+  assert.match(mobileSource, /새 폴더/);
+  assert.doesNotMatch(mobileSource, /mobileProjectInlineField/);
+  assert.doesNotMatch(mobileSource, /githubNewFolderName/);
+});

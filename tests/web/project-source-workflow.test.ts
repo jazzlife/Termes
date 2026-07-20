@@ -35,3 +35,15 @@ test("폴더 프로젝트 탭은 워크스페이스 트리 선택을 프로젝�
   assert.match(folderSection, /프로젝트 폴더로 선택/);
   assert.match(appSource, /await registerProjectFolder\(\{ path: selectedPath \}\)/);
 });
+
+test("Desktop 폴더 트리는 선택한 폴더 아래에 새 폴더를 만드는 팝업만 상시 입력 대신 제공한다", () => {
+  const folderSection = drawerSection("folder");
+  const githubSection = drawerSection("github");
+
+  assert.match(appSource, /const \[projectFolderCreateDialog, setProjectFolderCreateDialog\] = useState/);
+  assert.match(appSource, /data-testid="project-folder-create-dialog"/);
+  assert.match(folderSection, /새 폴더/);
+  assert.match(githubSection, /새 폴더/);
+  assert.doesNotMatch(folderSection, /folderNewFolderName/);
+  assert.doesNotMatch(githubSection, /githubNewFolderName/);
+});

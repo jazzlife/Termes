@@ -557,6 +557,65 @@ svg {
   text-align: center;
 }
 
+.projectFolderTreeActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.projectFolderTreeActions > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectFolderCreateBackdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 10, 20, 0.68);
+}
+
+.projectFolderCreateDialog {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(216, 199, 120, 0.34);
+  border-radius: 14px;
+  background: #101a2b;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.48);
+}
+
+.projectFolderCreateDialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.projectFolderCreateDialog h2,
+.projectFolderCreateDialog p {
+  margin: 0;
+}
+
+.projectFolderCreateDialog h2 {
+  color: #fff;
+  font-size: 19px;
+}
+
+.projectFolderCreateDialog p {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
 .githubAuthCard {
   display: flex;
   align-items: center;
