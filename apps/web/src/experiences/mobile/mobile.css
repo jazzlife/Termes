@@ -98,6 +98,27 @@
   letter-spacing: -0.02em;
 }
 
+.mobileBrandButton {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: var(--termes-primary, #2563eb);
+  overflow: hidden;
+}
+
+.mobileBrandButton img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .mobileHeaderTitle {
   min-width: 0;
   text-align: left;
@@ -219,6 +240,7 @@
 }
 
 .mobileIconButton:active,
+.mobileIconButton.active,
 .mobileIconButton.listening {
   background: var(--termes-primary-soft, #eaf0ff);
   color: var(--termes-primary, #2563eb);
@@ -385,6 +407,261 @@
   box-shadow: none;
   color: var(--termes-text, #17181b);
   font-size: 16px;
+}
+
+.mobileTaskSearchBar {
+  display: flex;
+  min-height: 56px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--termes-border-subtle, #e8eaf0);
+  background: var(--termes-main, #fbfbfd);
+  color: var(--termes-text-tertiary, #858b96);
+}
+
+.mobileTaskSearchBar input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--termes-text, #17181b);
+  font-size: 16px;
+}
+
+.mobileTaskListHeading .mobileIconButton {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  margin: -4px -8px -4px 4px;
+}
+
+.mobileProjectDrawerLayer,
+.mobileProjectAddLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  isolation: isolate;
+}
+
+.mobileProjectDrawerBackdrop,
+.mobileProjectAddBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(12, 16, 26, 0.42);
+}
+
+.mobileProjectDrawer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(86vw, 340px);
+  height: 100%;
+  flex-direction: column;
+  padding: calc(var(--mobile-safe-top) + 12px) 12px calc(var(--mobile-effective-safe-bottom) + 16px);
+  background: var(--termes-surface, #fff);
+  box-shadow: 20px 0 48px rgba(12, 16, 26, 0.22);
+}
+
+.mobileProjectDrawer header,
+.mobileProjectAddDialog header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobileProjectDrawer header div,
+.mobileProjectAddDialog header div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mobileProjectDrawer header span,
+.mobileProjectAddDialog header span {
+  color: var(--termes-text-tertiary, #858b96);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.mobileProjectDrawer h2,
+.mobileProjectAddDialog h2 {
+  margin: 0;
+  color: var(--termes-text, #17181b);
+  font-size: 20px;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.mobileProjectAddButton {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 14px 0 12px;
+  padding: 0 14px;
+  border: 1px solid var(--termes-primary, #2563eb);
+  border-radius: 12px;
+  background: var(--termes-primary-soft, #eaf0ff);
+  color: var(--termes-primary, #2563eb);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mobileProjectList {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+  scrollbar-width: none;
+}
+
+.mobileProjectList p {
+  margin: 18px 8px;
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mobileProjectList button {
+  display: grid;
+  width: 100%;
+  min-height: 52px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--termes-text-secondary, #555a64);
+  text-align: left;
+}
+
+.mobileProjectList button.active {
+  background: var(--termes-primary-soft, #eaf0ff);
+  color: var(--termes-primary, #2563eb);
+}
+
+.mobileProjectList button > span {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--termes-subtle, #f1f3f8);
+}
+
+.mobileProjectList button.active > span { background: color-mix(in srgb, var(--termes-primary, #2563eb) 14%, transparent); }
+
+.mobileProjectList strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileProjectAddLayer {
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.mobileProjectAddDialog {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 540px;
+  padding: 18px 16px calc(var(--mobile-effective-safe-bottom) + 18px);
+  border-radius: 20px 20px 0 0;
+  background: var(--termes-surface, #fff);
+  box-shadow: 0 -16px 48px rgba(12, 16, 26, 0.2);
+}
+
+.mobileProjectAddTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 18px 0 16px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--termes-subtle, #f1f3f8);
+}
+
+.mobileProjectAddTabs button {
+  min-height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mobileProjectAddTabs button.active {
+  background: var(--termes-surface, #fff);
+  color: var(--termes-text, #17181b);
+  box-shadow: 0 1px 4px rgba(12, 16, 26, 0.12);
+}
+
+.mobileProjectAddDialog > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mobileProjectAddDialog > label > span {
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mobileProjectAddDialog input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--termes-border, #d9dde6);
+  border-radius: 11px;
+  background: var(--termes-main, #fbfbfd);
+  color: var(--termes-text, #17181b);
+  font-size: 16px;
+}
+
+.mobileProjectAddDialog > p {
+  margin: 9px 0 16px;
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mobileProjectAddError {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--termes-danger-soft, #fdecef);
+  color: var(--termes-danger, #c33d53);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .mobileTaskList {

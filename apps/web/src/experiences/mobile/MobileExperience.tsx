@@ -1,7 +1,6 @@
 import {
   Activity,
   Bot,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -27,7 +26,7 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useRef } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -92,6 +91,7 @@ interface MobileExperienceProps {
   connectionLabel: string;
   onNavigate: (screen: MobileScreen) => void;
   onSelectProject: (projectId: string) => void;
+  onAddProject: (source: "github" | "folder", value: string) => Promise<void>;
   onSelectTask: (taskId: string) => void;
   onStartNewTask: () => void;
   onSearchChange: (value: string) => void;
@@ -147,6 +147,13 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const pinnedToLatestRef = useRef(true);
   const viewportBaselineHeightRef = useRef(0);
   const viewportOrientationRef = useRef<"portrait" | "landscape" | null>(null);
+  const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
+  const [projectAddDialogOpen, setProjectAddDialogOpen] = useState(false);
+  const [projectAddSource, setProjectAddSource] = useState<"github" | "folder">("github");
+  const [projectAddValue, setProjectAddValue] = useState("");
+  const [projectAddBusy, setProjectAddBusy] = useState(false);
+  const [projectAddError, setProjectAddError] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const scrollTimelineToLatest = useCallback(() => {
     const timeline = timelineRef.current;
@@ -320,6 +327,22 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     window.setTimeout(scrollTimelineToLatest, 160);
   }
 
+  async function handleProjectAddSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!projectAddValue.trim()) return;
+    setProjectAddBusy(true);
+    setProjectAddError(null);
+    try {
+      await props.onAddProject(projectAddSource, projectAddValue.trim());
+      setProjectAddValue("");
+      setProjectAddDialogOpen(false);
+    } catch (cause) {
+      setProjectAddError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setProjectAddBusy(false);
+    }
+  }
+
   function renderHeader(title: string, subtitle: string, backTarget?: MobileScreen): JSX.Element {
     return (
       <header className="mobileHeader mobileSafeTop" data-testid="mobile-header">
@@ -329,7 +352,9 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
               <ChevronLeft size={23} />
             </button>
           ) : (
-            <span className="mobileBrandMark" aria-hidden="true">T</span>
+            <button className="mobileBrandButton" type="button" aria-label="프로젝트 목록 열기" onClick={() => setProjectDrawerOpen(true)}>
+              <img src="/termes-icon-launcher-v2-192.png" alt="" />
+            </button>
           )}
           <div className="mobileHeaderTitle">
             <strong>{title}</strong>
@@ -340,6 +365,16 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
           {props.screen === "conversation" && !props.newTaskMode ? (
             <button className="mobileIconButton" type="button" aria-label="활동" onClick={() => navigate("activity")}>
               <Activity size={20} />
+            </button>
+          ) : null}
+          {props.screen === "tasks" ? (
+            <button
+              className={searchOpen ? "mobileIconButton active" : "mobileIconButton"}
+              type="button"
+              aria-label={searchOpen ? "Task 검색 닫기" : "Task 검색 열기"}
+              onClick={() => setSearchOpen((current) => !current)}
+            >
+              <Search size={20} />
             </button>
           ) : null}
           <button className="mobileIconButton" type="button" aria-label="설정" onClick={() => navigate("settings")}>
@@ -383,48 +418,102 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     );
   }
 
+  function renderProjectDrawer(): JSX.Element | null {
+    if (!projectDrawerOpen) return null;
+    return (
+      <div className="mobileProjectDrawerLayer" role="presentation">
+        <button className="mobileProjectDrawerBackdrop" type="button" aria-label="프로젝트 목록 닫기" onClick={() => setProjectDrawerOpen(false)} />
+        <aside className="mobileProjectDrawer" data-testid="mobile-project-drawer" aria-label="프로젝트 목록">
+          <header>
+            <div><span>TERMES</span><h2>프로젝트</h2></div>
+            <button className="mobileIconButton" type="button" aria-label="프로젝트 목록 닫기" onClick={() => setProjectDrawerOpen(false)}><X size={20} /></button>
+          </header>
+          <button
+            className="mobileProjectAddButton"
+            type="button"
+            onClick={() => {
+              setProjectDrawerOpen(false);
+              setProjectAddError(null);
+              setProjectAddDialogOpen(true);
+            }}
+          >
+            <Plus size={18} /> 프로젝트 추가
+          </button>
+          <div className="mobileProjectList" role="list">
+            {props.projects.length === 0 ? <p>등록된 프로젝트가 없습니다.</p> : props.projects.map((project) => (
+              <button
+                className={project.id === props.selectedProject?.id ? "active" : ""}
+                key={project.id}
+                role="listitem"
+                type="button"
+                onClick={() => {
+                  setProjectDrawerOpen(false);
+                  props.onSelectProject(project.id);
+                }}
+              >
+                <span><FolderKanban size={18} /></span>
+                <strong>{project.name}</strong>
+              </button>
+            ))}
+          </div>
+        </aside>
+      </div>
+    );
+  }
+
+  function renderProjectAddDialog(): JSX.Element | null {
+    if (!projectAddDialogOpen) return null;
+    const isGitHub = projectAddSource === "github";
+    return (
+      <div className="mobileProjectAddLayer" role="presentation">
+        <button className="mobileProjectAddBackdrop" type="button" aria-label="프로젝트 추가 닫기" disabled={projectAddBusy} onClick={() => setProjectAddDialogOpen(false)} />
+        <form className="mobileProjectAddDialog" data-testid="mobile-project-add-dialog" aria-label="프로젝트 추가" onSubmit={(event) => void handleProjectAddSubmit(event)}>
+          <header>
+            <div><span>NEW PROJECT</span><h2>프로젝트 추가</h2></div>
+            <button className="mobileIconButton" type="button" aria-label="프로젝트 추가 닫기" disabled={projectAddBusy} onClick={() => setProjectAddDialogOpen(false)}><X size={20} /></button>
+          </header>
+          <div className="mobileProjectAddTabs" role="tablist" aria-label="프로젝트 추가 방식">
+            <button className={isGitHub ? "active" : ""} type="button" onClick={() => { setProjectAddSource("github"); setProjectAddValue(""); setProjectAddError(null); }}>GitHub 프로젝트</button>
+            <button className={!isGitHub ? "active" : ""} type="button" onClick={() => { setProjectAddSource("folder"); setProjectAddValue(""); setProjectAddError(null); }}>폴더 프로젝트</button>
+          </div>
+          <label>
+            <span>{isGitHub ? "GitHub 저장소" : "워크스페이스 폴더"}</span>
+            <input
+              autoCapitalize="none"
+              autoCorrect="off"
+              disabled={projectAddBusy}
+              onChange={(event) => setProjectAddValue(event.target.value)}
+              placeholder={isGitHub ? "owner/repository" : "예: clients/my-app"}
+              value={projectAddValue}
+            />
+          </label>
+          <p>{isGitHub ? "저장소를 clone한 뒤 프로젝트로 등록합니다." : "이미 있는 폴더를 현재 워크스페이스 프로젝트로 등록합니다."}</p>
+          {projectAddError ? <div className="mobileProjectAddError" role="alert">{projectAddError}</div> : null}
+          <button className="mobilePrimaryButton" disabled={projectAddBusy || !projectAddValue.trim()} type="submit">
+            {projectAddBusy ? <Loader2 className="spinIcon" size={18} /> : <Plus size={18} />}
+            {projectAddBusy ? "추가 중" : "프로젝트 추가"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   if (props.screen === "tasks") {
     return (
       <main className="mobileExperience" data-testid="mobile-experience">
-        {renderHeader("Termes", props.connectionLabel)}
+        {renderHeader(props.selectedProject?.name || "프로젝트", props.connectionLabel)}
         {renderPwaInstallBanner()}
-        <label className="mobileProjectContext">
-          <span className="mobileProjectIcon" aria-hidden="true"><FolderKanban size={19} /></span>
-          <span className="mobileProjectCopy">
-            <small>현재 프로젝트</small>
-            <strong>{props.selectedProject?.name || "프로젝트를 선택해 주세요"}</strong>
-          </span>
-          <select
-            aria-label="Project 선택"
-            value={props.selectedProject?.id || ""}
-            disabled={props.projects.length === 0}
-            onChange={(event) => props.onSelectProject(event.target.value)}
-          >
-            {props.projects.length === 0 ? <option value="">등록된 Project 없음</option> : null}
-            {props.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
-          <span className="mobileProjectTaskCount">{filteredTasks.length}</span>
-          <ChevronDown size={18} aria-hidden="true" />
-        </label>
-        <section className="mobileTaskToolbar">
-          <label>
+        {searchOpen ? (
+          <section className="mobileTaskSearchBar">
             <Search size={18} />
-            <span className="mobileSrOnly">Task 검색</span>
-            <input
-              type="search"
-              aria-label="Task 검색"
-              value={props.search}
-              onChange={(event) => props.onSearchChange(event.target.value)}
-              placeholder="Task 검색"
-            />
-          </label>
-          <button className="mobileIconButton" type="button" aria-label="새로고침" onClick={props.onRefresh}>
-            <RefreshCw size={19} />
-          </button>
-        </section>
+            <label className="mobileSrOnly" htmlFor="mobile-task-search">Task 검색</label>
+            <input id="mobile-task-search" type="search" value={props.search} onChange={(event) => props.onSearchChange(event.target.value)} placeholder="Task 검색" autoFocus />
+          </section>
+        ) : null}
         <div className="mobileTaskListHeading">
           <strong>Task</strong>
           <span>{filteredTasks.length}개</span>
+          <button className="mobileIconButton" type="button" aria-label="새로고침" onClick={props.onRefresh}><RefreshCw size={19} /></button>
         </div>
         <section className="mobileTaskList" aria-label="Task 목록">
           {props.loading ? (
@@ -474,6 +563,8 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
             <Plus size={19} />새 Task 시작
           </button>
         </div>
+        {renderProjectDrawer()}
+        {renderProjectAddDialog()}
         {props.error ? <div className="mobileError" role="alert"><CircleAlert size={18} />{props.error}</div> : null}
       </main>
     );

@@ -3196,6 +3196,22 @@ function App(): JSX.Element {
             setError(cause instanceof Error ? cause.message : String(cause));
           });
         }}
+        onAddProject={async (source, value) => {
+          const project = source === "folder"
+            ? await registerProjectFolder({ path: normalizeProjectFolderPath(value) })
+            : await (async () => {
+                const repositoryFullName = value.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
+                const cloned = await cloneGitHubRepository({ repositoryFullName });
+                return registerProjectFolder({ path: cloned.path, name: cloned.name });
+              })();
+          selectProjectState(project.project.id);
+          selectTaskState("");
+          setTaskRuntime(null);
+          setNewTaskMode(false);
+          setTitle("");
+          setMobileScreen("tasks");
+          await refresh(project.project.id, "");
+        }}
         onSelectTask={(taskId) => {
           selectTaskState(taskId);
           setNewTaskMode(false);
