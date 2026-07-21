@@ -25,7 +25,6 @@ function criticalDecision() {
   const reasonCodes = ["routing-agent-critical-auth-isolation"];
   const specialists = [
     { domain: "security", role: "OAuth Isolation Specialist", mission: "OAuth 계정 경계를 구현하고 검증한다.", toolsets: ["file", "terminal"], required: true },
-    { domain: "operations", role: "Sandbox Runtime Specialist", mission: "계정별 샌드박스 경계를 구현하고 검증한다.", toolsets: ["file", "terminal"], required: true },
     { domain: "general", role: "Independent Critic", mission: "설계 반례와 누락을 독립 검토한다.", toolsets: ["file", "terminal"], required: true },
     { domain: "software", role: "Evidence Verifier", mission: "코드와 테스트 증거를 재현한다.", toolsets: ["file", "terminal"], required: true },
   ];
@@ -117,7 +116,7 @@ test("Fast Routing Agent가 컨텍스트를 먼저 분류하고 전문 요청에
     assert.equal(second.decision.route, "critical-synthesis");
     assert.ok(second.planningDurationMs >= 0);
     assert.deepEqual(second.decision.agentPlan.specialists.map((entry) => entry.role), [
-      "OAuth Isolation Specialist", "Sandbox Runtime Specialist", "Independent Critic", "Evidence Verifier",
+      "OAuth Isolation Specialist", "Independent Critic", "Evidence Verifier",
     ]);
     assert.equal(resumeCount, 1);
     assert.equal(createCount, 1);

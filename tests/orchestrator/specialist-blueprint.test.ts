@@ -204,6 +204,23 @@ test("다중 도메인 경로의 전문가 구성과 독립 검토 여부는 Age
   ]);
 });
 
+test("Hermes 동시 위임 한도를 초과하는 전문가 계획은 실행 전에 거부한다", () => {
+  const decision = executionDecision({
+    route: "parallel-specialists",
+    primaryDomain: "software",
+    specialists: [
+      specialist("software", "Implementation Specialist", "구현을 검증한다."),
+      specialist("product", "Product Specialist", "제품 흐름을 검증한다."),
+      specialist("security", "Security Specialist", "보안 영향을 검증한다."),
+      specialist("general", "Independent Reviewer", "독립 검토를 수행한다."),
+    ],
+  });
+  assert.throws(
+    () => parseAgentRouteDecision(JSON.stringify(decision)),
+    /at most 3 concurrent specialists/,
+  );
+});
+
 test("고위험 변경을 critical보다 낮춘 Agent 출력은 내부 재분류 없이 안전 불변식으로 거부한다", () => {
   const lowered = executionDecision({
     route: "single-specialist",
@@ -214,7 +231,7 @@ test("고위험 변경을 critical보다 낮춘 Agent 출력은 내부 재분류
   assert.throws(() => parseAgentRouteDecision(JSON.stringify(lowered)), /high-risk mutation must use critical-synthesis/);
 });
 
-test("critical 경로는 Routing Agent가 만든 전문팀을 변경하지 않고 Coordinator 계약으로 전달한다", () => {
+test("critical 경로는 Hermes 한도 내의 전문팀을 Coordinator 계약으로 전달한다", () => {
   const decision = parseAgentRouteDecision(JSON.stringify(executionDecision({
     route: "critical-synthesis",
     primaryDomain: "security",
@@ -222,14 +239,13 @@ test("critical 경로는 Routing Agent가 만든 전문팀을 변경하지 않�
     riskSignals: ["auth-or-secret", "production-or-deploy", "multi-account-isolation"],
     specialists: [
       specialist("security", "OAuth Isolation Specialist", "계정 인증 경계를 구현하고 검증한다."),
-      specialist("operations", "Sandbox Runtime Specialist", "계정별 샌드박스 실행 경계를 검증한다."),
       specialist("general", "Independent Critic", "설계의 반례와 누락을 독립 검토한다."),
       specialist("software", "Evidence Verifier", "코드·테스트·배포 증거를 재현한다."),
     ],
   })));
   const blueprint = buildSpecialistBlueprint(decision);
   const prompt = coordinatorInstructions(blueprint);
-  assert.equal(blueprint.specialists.length, 4);
+  assert.equal(blueprint.specialists.length, 3);
   assert.match(prompt, /delegate_task tool in batch mode exactly once/);
   assert.match(prompt, /OAuth Isolation Specialist/);
   assert.match(prompt, /Evidence Verifier/);

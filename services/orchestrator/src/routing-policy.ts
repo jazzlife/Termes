@@ -1,4 +1,5 @@
-export const ROUTING_POLICY_VERSION = 10;
+export const ROUTING_POLICY_VERSION = 11;
+export const MAX_CONCURRENT_SPECIALISTS = 3;
 
 export type FastQuestionType =
   | "conversation"
@@ -298,8 +299,8 @@ export function routeDecisionFromScreening(screening: RoutingScreeningDecision):
 }
 
 function parseSpecialists(value: unknown): RoutingAgentSpecialist[] {
-  if (!Array.isArray(value) || value.length > 5) {
-    throw new Error("Routing Agent returned invalid specialists");
+  if (!Array.isArray(value) || value.length > MAX_CONCURRENT_SPECIALISTS) {
+    throw new Error(`Routing Agent supports at most ${MAX_CONCURRENT_SPECIALISTS} concurrent specialists`);
   }
   const specialists = value.map((entry, index) => {
     const specialist = record(entry, `specialists[${index}]`);
@@ -325,8 +326,8 @@ function executionContract(route: ExecutionRoute, specialists: RoutingAgentSpeci
   const count = specialists.length;
   if (DIRECT_ROUTES.has(route) && count !== 0) throw new Error("Routing Agent assigned specialists to a direct route");
   if (route === "single-specialist" && count !== 1) throw new Error("Routing Agent single-specialist route requires exactly one specialist");
-  if (route === "parallel-specialists" && (count < 2 || count > 4)) throw new Error("Routing Agent parallel-specialists route requires two to four specialists");
-  if (route === "critical-synthesis" && (count < 3 || count > 5)) throw new Error("Routing Agent critical-synthesis route requires three to five specialists");
+  if (route === "parallel-specialists" && (count < 2 || count > MAX_CONCURRENT_SPECIALISTS)) throw new Error(`Routing Agent parallel-specialists route requires two to ${MAX_CONCURRENT_SPECIALISTS} specialists`);
+  if (route === "critical-synthesis" && count !== MAX_CONCURRENT_SPECIALISTS) throw new Error(`Routing Agent critical-synthesis route requires exactly ${MAX_CONCURRENT_SPECIALISTS} specialists`);
 
   if (route === "critical-synthesis") {
     return {

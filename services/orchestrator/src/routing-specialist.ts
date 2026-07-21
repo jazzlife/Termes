@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { JsonRpcSocket, type JsonRpcFrame } from "./hermes-json-rpc-runner";
 import {
+  MAX_CONCURRENT_SPECIALISTS,
   parseAgentRouteDecision,
   parseRoutingScreeningDecision,
   routeDecisionFromScreening,
@@ -77,7 +78,7 @@ function professionalPlanningPrompt(
     "contextRequirement=current-turn|recent-summary|project-state; action=read|analyze|implement|operate|delete",
     "target=code|runtime|data|security|product|research|general|unknown; scope=current-turn|recent-summary|project-state|system-context",
     "specialist.toolsets=file|terminal|web|browser; capabilities=github-project-bootstrap|runner-worktree-verification|web-pwa-verification|linux-ssh-ops|windows-powershell-ops|android-adb-debug|tizen-sdb-debug|local-mock-device",
-    "single-specialist requires 1 specialist; parallel-specialists requires 2-4; critical-synthesis requires 3-5 including an independent critic and evidence verifier.",
+    `Hermes permits at most ${MAX_CONCURRENT_SPECIALISTS} concurrent specialists per delegation batch. single-specialist requires 1 specialist; parallel-specialists requires 2-${MAX_CONCURRENT_SPECIALISTS}; critical-synthesis requires exactly ${MAX_CONCURRENT_SPECIALISTS}, including an independent critic and evidence verifier.`,
     "Every execution requires runner-worktree-verification. Production, auth, security boundary, account isolation, or destructive mutation requires critical-synthesis.",
     "Every specialist must be distinct, concrete, required=true, and limited to the tools it needs. directAnswer must be null.",
     `Specialist shape: ${JSON.stringify({ domain: "software", role: "Software Specialist", mission: "Inspect current project evidence and complete the requested work.", toolsets: ["file", "terminal"], required: true })}`,
