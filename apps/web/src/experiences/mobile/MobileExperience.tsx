@@ -48,6 +48,7 @@ import type { ThemeMode } from "../../app/theme";
 import type { TermesPwaInstallMode } from "../../pwa";
 import { MobileChatProgress } from "./MobileChatProgress";
 import { buildMobileChatProgress } from "./chat-progress";
+import { buildMobileChatTimeline } from "./chat-timeline";
 import "./mobile.css";
 
 export type MobileScreen = "tasks" | "conversation" | "activity" | "settings";
@@ -282,7 +283,12 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     turn: latestTurn,
     orchestration,
   }), [latestTurn, orchestration, projection, props.sendingMessage]);
-  const latestAssistantMessageId = [...visibleMessages].reverse().find((message) => message.role === "assistant")?.id || "";
+  const chatTimeline = useMemo(() => buildMobileChatTimeline({
+    messages: visibleMessages,
+    progressVisible: chatProgress.visible,
+    sendingMessage: props.sendingMessage,
+    turnUserMessageId: latestTurn?.userMessageId || null,
+  }), [chatProgress.visible, latestTurn?.userMessageId, props.sendingMessage, visibleMessages]);
   const mobileProjectFolderTree = useMemo(() => buildMobileProjectFolderTree(props.projectFolders), [props.projectFolders]);
 
   useEffect(() => {
@@ -957,32 +963,25 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
         {chatMessages.length > visibleMessages.length ? (
           <div className="mobileHistoryBoundary">이전 메시지 {chatMessages.length - visibleMessages.length}개는 새로고침 후에도 보존됩니다. Tablet 또는 Desktop에서 전체 이력을 확인할 수 있습니다.</div>
         ) : null}
-        {visibleMessages.map((message) => (
-          <div className="mobileMessageGroup" key={message.id}>
-            {!chatProgress.active && chatProgress.visible && message.id === latestAssistantMessageId ? (
-              <article className="mobileMessage agent progress">
-                <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>상태 보고</time></div>
-                <MobileChatProgress progress={chatProgress} />
-              </article>
-            ) : null}
-            <article className={message.role === "user" ? "mobileMessage user" : "mobileMessage agent"}>
-              {message.role === "assistant" ? <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{timeLabel(message.createdAt)}</time></div> : null}
-              <div className="mobileMarkdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
+        {chatTimeline.map((item) => item.kind === "message" ? (
+          <div className="mobileMessageGroup" key={item.message.id}>
+            <article className={item.message.role === "user" ? "mobileMessage user" : "mobileMessage agent"}>
+              {item.message.role === "assistant" ? <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{timeLabel(item.message.createdAt)}</time></div> : null}
+              <div className="mobileMarkdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.message.content}</ReactMarkdown></div>
             </article>
           </div>
-        ))}
-        {chatProgress.active ? (
-          <article className="mobileMessage agent live">
-            <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{projection?.needsInput ? "입력 필요" : "실시간"}</time></div>
+        ) : (
+          <article className={chatProgress.active ? "mobileMessage agent live" : "mobileMessage agent progress"} key={`progress:${item.placement}`}>
+            <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{chatProgress.active ? projection?.needsInput ? "입력 필요" : "실시간" : "상태 보고"}</time></div>
             <MobileChatProgress progress={chatProgress} />
-            {projection?.parts.map((part, index) => {
+            {chatProgress.active ? projection?.parts.map((part, index) => {
               if (part.type === "text") return <div className="mobileMarkdown" key={`text-${index}`}><ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown></div>;
               if (part.type === "reasoning") return <details className="mobileReasoning" key={`reasoning-${index}`}><summary><Sparkles size={16} />Reasoning</summary><p>{part.text}</p></details>;
               return null;
-            })}
-            {projection?.error ? <div className="mobileInlineError"><CircleAlert size={17} />{projection.error}</div> : null}
+            }) : null}
+            {chatProgress.active && projection?.error ? <div className="mobileInlineError"><CircleAlert size={17} />{projection.error}</div> : null}
           </article>
-        ) : null}
+        ))}
         {interaction ? (
           <section className={`mobileInteractionCard type-${interaction.type}`}>
             <div className="mobileInteractionHeading"><ShieldCheck size={19} /><div><strong>{interaction.type === "approval" ? "실행 승인이 필요합니다" : interaction.type === "clarify" ? "추가 정보가 필요합니다" : interaction.type === "sudo" ? "관리자 암호 입력" : "보안 값 입력"}</strong><p>{interaction.type === "approval" ? interaction.description : interaction.type === "clarify" ? interaction.question : interaction.type === "secret" ? interaction.prompt || interaction.envVar : "입력값은 Hermes에만 전달되며 Termes에 저장되지 않습니다."}</p></div></div>
