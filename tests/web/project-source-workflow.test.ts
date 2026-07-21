@@ -54,3 +54,8 @@ test("Desktop 폴더 선택기는 접기와 펼치기가 가능한 실제 계층
   assert.match(appSource, /className="projectDirectoryTreeToggle"/);
   assert.match(appSource, /className="projectDirectoryTreeChildren"/);
 });
+
+test("Desktop 새 폴더 액션은 폴더 트리 헤더에 배치한다", () => {
+  assert.match(appSource, /className="projectDirectoryTreeHeader"/);
+  assert.match(appSource, /className="projectDirectoryTreeCreateAction"/);
+});

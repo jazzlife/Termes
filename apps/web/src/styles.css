@@ -506,6 +506,39 @@ svg {
   background: rgba(255, 255, 255, 0.035);
 }
 
+.projectDirectoryTreeHeader {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.projectDirectoryTreeHeader strong {
+  color: #dbe4ef;
+  font-size: 12px;
+}
+
+.projectDirectoryTreeCreateAction {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid rgba(216, 199, 120, 0.36);
+  border-radius: 7px;
+  background: rgba(216, 199, 120, 0.1);
+  color: #f2e6a3;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.projectDirectoryTreeCreateAction:disabled {
+  opacity: 0.5;
+}
+
 .projectDirectoryTreeNode {
   position: relative;
 }
@@ -583,8 +616,7 @@ svg {
 .projectFolderTreeActions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  min-height: 18px;
 }
 
 .projectFolderTreeActions > span {

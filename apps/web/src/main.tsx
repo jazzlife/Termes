@@ -474,11 +474,17 @@ function ProjectDirectoryTree({
   selectedPath,
   onSelect,
   emptyLabel,
+  label,
+  onCreateFolder,
+  createDisabled,
 }: {
   folders: ProjectFolderSummary[];
   selectedPath: string;
   onSelect: (path: string) => void;
   emptyLabel: string;
+  label: string;
+  onCreateFolder: () => void;
+  createDisabled: boolean;
 }): React.ReactElement {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
   const nodes = useMemo(() => buildProjectDirectoryTree(folders), [folders]);
@@ -498,6 +504,12 @@ function ProjectDirectoryTree({
 
   return (
     <div className="projectDirectoryTree" role="tree">
+      <div className="projectDirectoryTreeHeader">
+        <strong>{label}</strong>
+        <button className="projectDirectoryTreeCreateAction" type="button" disabled={createDisabled} onClick={onCreateFolder}>
+          <FolderPlus size={14} /> 새 폴더
+        </button>
+      </div>
       <div className="projectDirectoryTreeNode" role="treeitem" aria-expanded={rootExpanded}>
         <div className={selectedPath === "" ? "projectDirectoryTreeRow active" : "projectDirectoryTreeRow"}>
           <span className="projectDirectoryTreeSpacer" aria-hidden="true" />
@@ -3469,13 +3481,13 @@ function App(): JSX.Element {
                     selectedPath={folderPath}
                     onSelect={setFolderPath}
                     emptyLabel="등록할 수 있는 폴더가 없습니다. 새 폴더를 먼저 생성해 주세요."
+                    label="워크스페이스 폴더"
+                    createDisabled={folderBusy}
+                    onCreateFolder={() => openProjectFolderCreateDialog("folder")}
                   />
 
                   <div className="projectFolderTreeActions">
                     <span>{folderPath ? `${projectFolderLabel(folderPath)} 선택됨` : "Workspace root 선택됨"}</span>
-                    <button className="aliasActionButton secondary" type="button" disabled={folderBusy} onClick={() => openProjectFolderCreateDialog("folder")}>
-                      <FolderPlus size={15} /> 새 폴더
-                    </button>
                   </div>
 
                   <div className="projectDrawerActions">
@@ -3633,21 +3645,18 @@ function App(): JSX.Element {
                       <strong>{selectedGithubRepository || "저장소 목록에서 선택해 주세요."}</strong>
                     </div>
 
-                    <div className="projectDrawerField">
-                      <span>워크스페이스 클론 폴더</span>
-                      <ProjectDirectoryTree
-                        folders={projectFolders}
-                        selectedPath={githubCloneParentPath}
-                        onSelect={setGithubCloneParentPath}
-                        emptyLabel="clone 위치로 선택할 폴더가 없습니다. 새 폴더를 추가해 주세요."
-                      />
-                    </div>
+                    <ProjectDirectoryTree
+                      folders={projectFolders}
+                      selectedPath={githubCloneParentPath}
+                      onSelect={setGithubCloneParentPath}
+                      emptyLabel="clone 위치로 선택할 폴더가 없습니다. 새 폴더를 추가해 주세요."
+                      label="워크스페이스 클론 폴더"
+                      createDisabled={githubBusy}
+                      onCreateFolder={() => openProjectFolderCreateDialog("github")}
+                    />
 
                     <div className="projectFolderTreeActions">
                       <span>{githubCloneParentPath ? `${projectFolderLabel(githubCloneParentPath)} 선택됨` : "Workspace root 선택됨"}</span>
-                      <button className="aliasActionButton secondary" type="button" disabled={githubBusy} onClick={() => openProjectFolderCreateDialog("github")}>
-                        <FolderPlus size={15} /> 새 폴더
-                      </button>
                     </div>
 
                     <button

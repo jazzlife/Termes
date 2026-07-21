@@ -606,11 +606,10 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     selectedPath: string,
     onSelect: (path: string) => void,
     emptyLabel: string,
+    label: string,
+    onCreateFolder: () => void,
     allowWorkspaceRoot = false,
   ): JSX.Element {
-    if (props.projectFolders.length === 0) {
-      return <p className="mobileProjectFolderEmpty">{emptyLabel}</p>;
-    }
     const toggle = (path: string) => {
       setCollapsedMobileProjectFolders((current) => {
         const next = new Set(current);
@@ -621,14 +620,20 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     };
     return (
       <div className="mobileProjectFolderTree" data-testid="mobile-project-folder-tree" role="tree">
-        {allowWorkspaceRoot ? (
+        <div className="mobileProjectFolderTreeHeader">
+          <strong>{label}</strong>
+          <button className="mobileProjectFolderTreeCreateAction" disabled={projectAddBusy} type="button" onClick={onCreateFolder}><Plus size={15} />새 폴더</button>
+        </div>
+        {props.projectFolders.length === 0 ? <p className="mobileProjectFolderEmpty">{emptyLabel}</p> : <>
+          {allowWorkspaceRoot ? (
           <div className="mobileProjectFolderTreeRoot" role="treeitem">
             <button className={selectedPath === "" ? "active" : ""} type="button" onClick={() => onSelect("")}><FolderOpen size={17} /><span>Workspace root</span></button>
           </div>
-        ) : null}
-        <div className="mobileProjectFolderTreeChildren" role="group">
-          {mobileProjectFolderTree.map((node) => <MobileProjectFolderTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedMobileProjectFolders} onSelect={onSelect} onToggle={toggle} />)}
-        </div>
+          ) : null}
+          <div className="mobileProjectFolderTreeChildren" role="group">
+            {mobileProjectFolderTree.map((node) => <MobileProjectFolderTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedMobileProjectFolders} onSelect={onSelect} onToggle={toggle} />)}
+          </div>
+        </>}
       </div>
     );
   }
@@ -693,23 +698,32 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
                 </div>
               </section>
               <section className="mobileProjectPicker">
-                <span>워크스페이스 클론 폴더</span>
-                {renderProjectFolderTree(githubCloneParentPath, setGithubCloneParentPath, "새 폴더를 추가하거나 Workspace root를 선택할 수 있습니다.", true)}
+                {renderProjectFolderTree(
+                  githubCloneParentPath,
+                  setGithubCloneParentPath,
+                  "새 폴더를 추가하거나 Workspace root를 선택할 수 있습니다.",
+                  "워크스페이스 클론 폴더",
+                  () => openMobileFolderCreateDialog("github"),
+                  true,
+                )}
               </section>
-              <div className="mobileProjectFolderActions">
+              <div className="mobileProjectFolderSelection">
                 <span>{githubCloneParentPath ? `/${githubCloneParentPath} 선택됨` : "Workspace root 선택됨"}</span>
-                <button disabled={projectAddBusy} type="button" onClick={() => openMobileFolderCreateDialog("github")}>새 폴더</button>
               </div>
-            </>
-          ) : (
-            <section className="mobileProjectPicker">
-              <span>워크스페이스 프로젝트 폴더 선택</span>
-              {renderProjectFolderTree(folderProjectPath, setFolderProjectPath, "프로젝트 폴더를 먼저 추가해 주세요.")}
-              <div className="mobileProjectFolderActions">
+              </>
+              ) : (
+              <section className="mobileProjectPicker">
+              {renderProjectFolderTree(
+                folderProjectPath,
+                setFolderProjectPath,
+                "프로젝트 폴더를 먼저 추가해 주세요.",
+                "워크스페이스 프로젝트 폴더",
+                () => openMobileFolderCreateDialog("folder"),
+              )}
+              <div className="mobileProjectFolderSelection">
                 <span>{folderProjectPath ? `/${folderProjectPath} 선택됨` : "폴더를 선택해 주세요."}</span>
-                <button disabled={projectAddBusy} type="button" onClick={() => openMobileFolderCreateDialog("folder")}>새 폴더</button>
               </div>
-            </section>
+              </section>
           )}
           {projectAddError ? <div className="mobileProjectAddError" role="alert">{projectAddError}</div> : null}
           <button className="mobilePrimaryButton" data-testid={isGitHub ? "mobile-github-clone-selected" : "mobile-folder-project-select"} disabled={projectAddBusy || (isGitHub ? !githubConnected || !selectedGithubRepository : !folderProjectPath)} type="submit">
