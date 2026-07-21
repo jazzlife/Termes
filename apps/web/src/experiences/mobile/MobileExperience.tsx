@@ -1,6 +1,7 @@
 import {
   Activity,
   Bot,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -151,6 +152,65 @@ function artifactChangedFiles(value: unknown): unknown[] {
   return Array.isArray(files) ? files : [];
 }
 
+type MobileProjectFolderTreeNode = {
+  folder: ProjectFolderSummary;
+  children: MobileProjectFolderTreeNode[];
+};
+
+function buildMobileProjectFolderTree(folders: ProjectFolderSummary[]): MobileProjectFolderTreeNode[] {
+  const nodes = new Map(folders.map((folder) => [folder.path, { folder, children: [] as MobileProjectFolderTreeNode[] }]));
+  const roots: MobileProjectFolderTreeNode[] = [];
+  for (const node of nodes.values()) {
+    const parentPath = node.folder.path.split("/").slice(0, -1).join("/");
+    const parent = nodes.get(parentPath);
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  const sortNodes = (items: MobileProjectFolderTreeNode[]) => {
+    items.sort((left, right) => left.folder.name.localeCompare(right.folder.name));
+    items.forEach((item) => sortNodes(item.children));
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+function MobileProjectFolderTreeNode({
+  node,
+  selectedPath,
+  collapsedPaths,
+  onSelect,
+  onToggle,
+}: {
+  node: MobileProjectFolderTreeNode;
+  selectedPath: string;
+  collapsedPaths: Set<string>;
+  onSelect: (path: string) => void;
+  onToggle: (path: string) => void;
+}): JSX.Element {
+  const hasChildren = node.children.length > 0;
+  const expanded = hasChildren && (!collapsedPaths.has(node.folder.path) || selectedPath.startsWith(`${node.folder.path}/`));
+  return (
+    <div className="mobileProjectFolderTreeNode" role="treeitem" aria-expanded={hasChildren ? expanded : undefined}>
+      <div className={node.folder.path === selectedPath ? "mobileProjectFolderTreeRow active" : "mobileProjectFolderTreeRow"}>
+        {hasChildren ? (
+          <button className="mobileProjectFolderTreeToggle" type="button" aria-label={`${node.folder.name} ${expanded ? "접기" : "펼치기"}`} onClick={() => onToggle(node.folder.path)}>
+            {expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+          </button>
+        ) : <span className="mobileProjectFolderTreeSpacer" aria-hidden="true" />}
+        <button className="mobileProjectFolderTreeSelect" type="button" onClick={() => onSelect(node.folder.path)}>
+          <FolderOpen size={17} />
+          <span>{node.folder.name || `/${node.folder.path}`}</span>
+        </button>
+      </div>
+      {hasChildren && expanded ? (
+        <div className="mobileProjectFolderTreeChildren" role="group">
+          {node.children.map((child) => <MobileProjectFolderTreeNode key={child.folder.path} node={child} selectedPath={selectedPath} collapsedPaths={collapsedPaths} onSelect={onSelect} onToggle={onToggle} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
@@ -165,6 +225,7 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const [selectedGithubRepository, setSelectedGithubRepository] = useState("");
   const [githubCloneParentPath, setGithubCloneParentPath] = useState("");
   const [folderProjectPath, setFolderProjectPath] = useState("");
+  const [collapsedMobileProjectFolders, setCollapsedMobileProjectFolders] = useState<Set<string>>(() => new Set());
   const [mobileFolderCreateDialog, setMobileFolderCreateDialog] = useState<"github" | "folder" | null>(null);
   const [mobileFolderCreateName, setMobileFolderCreateName] = useState("");
   const [projectAddBusy, setProjectAddBusy] = useState(false);
@@ -222,6 +283,7 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     orchestration,
   }), [latestTurn, orchestration, projection, props.sendingMessage]);
   const latestAssistantMessageId = [...visibleMessages].reverse().find((message) => message.role === "assistant")?.id || "";
+  const mobileProjectFolderTree = useMemo(() => buildMobileProjectFolderTree(props.projectFolders), [props.projectFolders]);
 
   useEffect(() => {
     const visualViewport = window.visualViewport;
@@ -549,27 +611,24 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     if (props.projectFolders.length === 0) {
       return <p className="mobileProjectFolderEmpty">{emptyLabel}</p>;
     }
+    const toggle = (path: string) => {
+      setCollapsedMobileProjectFolders((current) => {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      });
+    };
     return (
       <div className="mobileProjectFolderTree" data-testid="mobile-project-folder-tree" role="tree">
         {allowWorkspaceRoot ? (
-          <button className={selectedPath === "" ? "active" : ""} type="button" onClick={() => onSelect("")}>
-            <FolderOpen size={17} />
-            <span>/</span>
-          </button>
+          <div className="mobileProjectFolderTreeRoot" role="treeitem">
+            <button className={selectedPath === "" ? "active" : ""} type="button" onClick={() => onSelect("")}><FolderOpen size={17} /><span>Workspace root</span></button>
+          </div>
         ) : null}
-        {props.projectFolders.map((folder) => (
-          <button
-            className={folder.path === selectedPath ? "active" : ""}
-            key={folder.path}
-            type="button"
-            style={{ paddingLeft: `${12 + Math.min(folder.depth, 5) * 14}px` }}
-            onClick={() => onSelect(folder.path)}
-          >
-            <FolderOpen size={17} />
-            <span>{folder.name || `/${folder.path}`}</span>
-            <small>/{folder.path}</small>
-          </button>
-        ))}
+        <div className="mobileProjectFolderTreeChildren" role="group">
+          {mobileProjectFolderTree.map((node) => <MobileProjectFolderTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedMobileProjectFolders} onSelect={onSelect} onToggle={toggle} />)}
+        </div>
       </div>
     );
   }

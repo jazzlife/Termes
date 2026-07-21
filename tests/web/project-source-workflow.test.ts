@@ -47,3 +47,10 @@ test("Desktop 폴더 트리는 선택한 폴더 아래에 새 폴더를 만드�
   assert.doesNotMatch(folderSection, /folderNewFolderName/);
   assert.doesNotMatch(githubSection, /githubNewFolderName/);
 });
+
+test("Desktop 폴더 선택기는 접기와 펼치기가 가능한 실제 계층 트리를 렌더링한다", () => {
+  assert.match(appSource, /function ProjectDirectoryTreeNode\(/);
+  assert.match(appSource, /aria-expanded=\{hasChildren \? expanded/);
+  assert.match(appSource, /className="projectDirectoryTreeToggle"/);
+  assert.match(appSource, /className="projectDirectoryTreeChildren"/);
+});

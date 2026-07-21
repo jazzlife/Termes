@@ -2,6 +2,8 @@ import {
   Activity,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   Command,
   FileCode2,
@@ -408,6 +410,65 @@ function projectFolderLabel(value: string): string {
   return value ? `/${value}` : "/";
 }
 
+type ProjectDirectoryTreeNode = {
+  folder: ProjectFolderSummary;
+  children: ProjectDirectoryTreeNode[];
+};
+
+function buildProjectDirectoryTree(folders: ProjectFolderSummary[]): ProjectDirectoryTreeNode[] {
+  const nodes = new Map(folders.map((folder) => [folder.path, { folder, children: [] as ProjectDirectoryTreeNode[] }]));
+  const roots: ProjectDirectoryTreeNode[] = [];
+  for (const node of nodes.values()) {
+    const parentPath = node.folder.path.split("/").slice(0, -1).join("/");
+    const parent = nodes.get(parentPath);
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  const sortNodes = (items: ProjectDirectoryTreeNode[]) => {
+    items.sort((left, right) => left.folder.name.localeCompare(right.folder.name));
+    items.forEach((item) => sortNodes(item.children));
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+function ProjectDirectoryTreeNode({
+  node,
+  selectedPath,
+  collapsedPaths,
+  onSelect,
+  onToggle,
+}: {
+  node: ProjectDirectoryTreeNode;
+  selectedPath: string;
+  collapsedPaths: Set<string>;
+  onSelect: (path: string) => void;
+  onToggle: (path: string) => void;
+}): React.ReactElement {
+  const hasChildren = node.children.length > 0;
+  const expanded = hasChildren && (!collapsedPaths.has(node.folder.path) || selectedPath.startsWith(`${node.folder.path}/`));
+  return (
+    <div className="projectDirectoryTreeNode" role="treeitem" aria-expanded={hasChildren ? expanded : undefined}>
+      <div className={node.folder.path === selectedPath ? "projectDirectoryTreeRow active" : "projectDirectoryTreeRow"}>
+        {hasChildren ? (
+          <button className="projectDirectoryTreeToggle" type="button" aria-label={`${node.folder.name} ${expanded ? "접기" : "펼치기"}`} onClick={() => onToggle(node.folder.path)}>
+            {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </button>
+        ) : <span className="projectDirectoryTreeSpacer" aria-hidden="true" />}
+        <button className="projectDirectoryTreeSelect" type="button" onClick={() => onSelect(node.folder.path)}>
+          <FolderOpen size={15} />
+          <span>{node.folder.name || projectFolderLabel(node.folder.path)}</span>
+        </button>
+      </div>
+      {hasChildren && expanded ? (
+        <div className="projectDirectoryTreeChildren" role="group">
+          {node.children.map((child) => <ProjectDirectoryTreeNode key={child.folder.path} node={child} selectedPath={selectedPath} collapsedPaths={collapsedPaths} onSelect={onSelect} onToggle={onToggle} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ProjectDirectoryTree({
   folders,
   selectedPath,
@@ -419,33 +480,36 @@ function ProjectDirectoryTree({
   onSelect: (path: string) => void;
   emptyLabel: string;
 }): React.ReactElement {
+  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
+  const nodes = useMemo(() => buildProjectDirectoryTree(folders), [folders]);
   if (folders.length === 0) {
     return <div className="projectDirectoryEmpty">{emptyLabel}</div>;
   }
 
+  const rootExpanded = nodes.some((node) => !collapsedPaths.has(node.folder.path) || selectedPath === node.folder.path || selectedPath.startsWith(`${node.folder.path}/`));
+  const toggle = (path: string) => {
+    setCollapsedPaths((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
   return (
     <div className="projectDirectoryTree" role="tree">
-      <button
-        type="button"
-        className={selectedPath === "" ? "active" : ""}
-        onClick={() => onSelect("")}
-      >
-        <FolderOpen size={15} />
-        <span>/</span>
-      </button>
-      {folders.map((folder) => (
-        <button
-          key={folder.path}
-          type="button"
-          className={folder.path === selectedPath ? "active" : ""}
-          style={{ paddingLeft: `${12 + Math.min(folder.depth, 5) * 14}px` }}
-          onClick={() => onSelect(folder.path)}
-        >
-          <FolderOpen size={15} />
-          <span>{folder.name || projectFolderLabel(folder.path)}</span>
-          <small>{projectFolderLabel(folder.path)}</small>
-        </button>
-      ))}
+      <div className="projectDirectoryTreeNode" role="treeitem" aria-expanded={rootExpanded}>
+        <div className={selectedPath === "" ? "projectDirectoryTreeRow active" : "projectDirectoryTreeRow"}>
+          <span className="projectDirectoryTreeSpacer" aria-hidden="true" />
+          <button className="projectDirectoryTreeSelect" type="button" onClick={() => onSelect("")}>
+            <FolderOpen size={15} />
+            <span>Workspace root</span>
+          </button>
+        </div>
+        <div className="projectDirectoryTreeChildren" role="group">
+          {nodes.map((node) => <ProjectDirectoryTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedPaths} onSelect={onSelect} onToggle={toggle} />)}
+        </div>
+      </div>
     </div>
   );
 }

@@ -506,46 +506,69 @@ svg {
   background: rgba(255, 255, 255, 0.035);
 }
 
-.projectDirectoryTree button {
-  display: grid;
-  min-height: 44px;
-  grid-template-columns: auto minmax(0, 1fr);
+.projectDirectoryTreeNode {
+  position: relative;
+}
+
+.projectDirectoryTreeChildren {
+  margin-left: 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.projectDirectoryTreeRow {
+  display: flex;
+  min-height: 40px;
   align-items: center;
-  gap: 8px;
-  border: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: transparent;
-  color: #dbe4ef;
-  font: inherit;
-  text-align: left;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-.projectDirectoryTree button:last-child {
-  border-bottom: 0;
-}
-
-.projectDirectoryTree button.active {
+.projectDirectoryTreeRow.active {
   background: rgba(216, 199, 120, 0.16);
   color: #ffffff;
 }
 
-.projectDirectoryTree span,
-.projectDirectoryTree small {
+.projectDirectoryTreeToggle,
+.projectDirectoryTreeSpacer {
+  display: grid;
+  width: 30px;
+  min-width: 30px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+}
+
+.projectDirectoryTreeToggle:hover {
+  color: #fff;
+}
+
+.projectDirectoryTreeSelect {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.projectDirectoryTreeSelect span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.projectDirectoryTree span {
+.projectDirectoryTreeSelect span {
   font-size: 13px;
   font-weight: 800;
-}
-
-.projectDirectoryTree small {
-  grid-column: 2;
-  color: #94a3b8;
-  font-size: 11px;
 }
 
 .projectDirectoryEmpty {

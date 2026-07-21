@@ -34,3 +34,10 @@ test("모바일 폴더 트리는 선택한 폴더의 하위 폴더를 팝업에�
   assert.doesNotMatch(mobileSource, /mobileProjectInlineField/);
   assert.doesNotMatch(mobileSource, /githubNewFolderName/);
 });
+
+test("모바일 폴더 선택기는 접기와 펼치기가 가능한 실제 계층 트리를 렌더링한다", () => {
+  assert.match(mobileSource, /function MobileProjectFolderTreeNode\(/);
+  assert.match(mobileSource, /className="mobileProjectFolderTreeToggle"/);
+  assert.match(mobileSource, /className="mobileProjectFolderTreeChildren"/);
+  assert.doesNotMatch(mobileSource, /style=\{\{ paddingLeft:/);
+});

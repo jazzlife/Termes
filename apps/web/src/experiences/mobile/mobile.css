@@ -781,6 +781,74 @@
   white-space: nowrap;
 }
 
+.mobileProjectFolderTreeNode {
+  position: relative;
+}
+
+.mobileProjectFolderTree .mobileProjectFolderTreeChildren {
+  margin-left: 14px;
+  border-left: 1px solid var(--termes-border, #d9dde6);
+}
+
+.mobileProjectFolderTree .mobileProjectFolderTreeRow,
+.mobileProjectFolderTree .mobileProjectFolderTreeRoot > button {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--termes-border, #d9dde6);
+  background: transparent;
+  color: var(--termes-text-secondary, #555a64);
+  text-align: left;
+}
+
+.mobileProjectFolderTree .mobileProjectFolderTreeRow.active,
+.mobileProjectFolderTree .mobileProjectFolderTreeRoot > button.active {
+  background: var(--termes-primary-soft, #eaf0ff);
+  color: var(--termes-primary, #2563eb);
+}
+
+.mobileProjectFolderTree .mobileProjectFolderTreeToggle,
+.mobileProjectFolderTree .mobileProjectFolderTreeSpacer {
+  display: grid;
+  width: 30px;
+  min-width: 30px;
+  height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--termes-text-tertiary, #858b96);
+}
+
+.mobileProjectFolderTree .mobileProjectFolderTreeSelect {
+  display: flex;
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.mobileProjectFolderTree .mobileProjectFolderTreeSelect span,
+.mobileProjectFolderTree .mobileProjectFolderTreeRoot span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mobileProjectFolderActions {
   display: flex;
   min-width: 0;
