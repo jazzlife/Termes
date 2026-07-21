@@ -20,6 +20,7 @@ import {
   type RoutingSystemContext,
 } from "./routing-policy";
 import { executeHermesJsonRpcRun } from "./hermes-json-rpc-runner";
+import { jsonForPostgres } from "./postgres-json";
 import { HermesRoutingSpecialist } from "./routing-specialist";
 import { dashboardWorkspacePath } from "./workspace-path";
 
@@ -1543,8 +1544,8 @@ async function completeTask(
         output.slice(0, 900),
         artifactUri,
         run.checksum || null,
-        JSON.stringify(changedFiles),
-        JSON.stringify({
+        jsonForPostgres(changedFiles),
+        jsonForPostgres({
           hermesRunId,
           status: run.status,
           usage: run.usage || {},
@@ -1566,7 +1567,7 @@ async function completeTask(
         task.id,
         artifactUri,
         run.checksum || null,
-        JSON.stringify({
+        jsonForPostgres({
           hermesRunId,
           model: run.model || null,
           output,
