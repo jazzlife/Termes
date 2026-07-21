@@ -43,6 +43,7 @@ import type {
   TaskSummary,
   VerificationResultSummary,
 } from "@termes/shared";
+import { maximumAutonomyPolicy } from "@termes/shared";
 import type { CodexOAuthDeviceSession, TermesAccountPrincipal } from "../../api";
 import type { ThemeMode } from "../../app/theme";
 import type { TermesPwaInstallMode } from "../../pwa";
@@ -840,6 +841,13 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
           <section className="mobileSettingsSection">
             <h2>Account</h2>
             <div className="mobileAccountCard"><UserCircle2 size={22} /><div><strong>{props.account.displayName}</strong><span>{props.account.workspaceKey}</span></div></div>
+            <div className="mobileAutonomyStatus">
+              <ShieldCheck size={20} />
+              <div>
+                <strong>최대 자율주행</strong>
+                <span>{maximumAutonomyPolicy.automatic.length}개 실행 범주는 승인 없이 수행하며, 인간 전용 경계에서만 멈춥니다.</span>
+              </div>
+            </div>
             <div className={props.openAiConnected ? "mobileOAuthStatus connected" : "mobileOAuthStatus"}>
               <Wifi size={20} />
               <div><strong>OpenAI OAuth</strong><span>{props.openAiAuthMessage}</span></div>
@@ -982,12 +990,11 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
             {chatProgress.active && projection?.error ? <div className="mobileInlineError"><CircleAlert size={17} />{projection.error}</div> : null}
           </article>
         ))}
-        {interaction ? (
+        {interaction && interaction.type !== "approval" ? (
           <section className={`mobileInteractionCard type-${interaction.type}`}>
-            <div className="mobileInteractionHeading"><ShieldCheck size={19} /><div><strong>{interaction.type === "approval" ? "실행 승인이 필요합니다" : interaction.type === "clarify" ? "추가 정보가 필요합니다" : interaction.type === "sudo" ? "관리자 암호 입력" : "보안 값 입력"}</strong><p>{interaction.type === "approval" ? interaction.description : interaction.type === "clarify" ? interaction.question : interaction.type === "secret" ? interaction.prompt || interaction.envVar : "입력값은 Hermes에만 전달되며 Termes에 저장되지 않습니다."}</p></div></div>
-            {interaction.type === "approval" ? <div className="mobileInteractionActions"><button disabled={props.interactionSending} onClick={() => props.onInteraction({ type: "approval", choice: "once" })}>한 번 승인</button><button disabled={props.interactionSending} onClick={() => props.onInteraction({ type: "approval", choice: "session" })}>이번 세션</button>{interaction.allowPermanent ? <button disabled={props.interactionSending} onClick={() => props.onInteraction({ type: "approval", choice: "always" })}>항상 승인</button> : null}<button className="danger" disabled={props.interactionSending} onClick={() => props.onInteraction({ type: "approval", choice: "deny" })}>거절</button></div> : null}
+            <div className="mobileInteractionHeading"><ShieldCheck size={19} /><div><strong>{interaction.type === "clarify" ? "추가 정보가 필요합니다" : interaction.type === "sudo" ? "관리자 암호 입력" : "보안 값 입력"}</strong><p>{interaction.type === "clarify" ? interaction.question : interaction.type === "secret" ? interaction.prompt || interaction.envVar : "입력값은 Hermes에만 전달되며 Termes에 저장되지 않습니다."}</p></div></div>
             {interaction.type === "clarify" && interaction.choices?.length ? <div className="mobileInteractionChoices">{interaction.choices.map((choice) => <button disabled={props.interactionSending} key={choice} onClick={() => props.onInteraction({ type: "clarify", requestId: interaction.requestId, answer: choice })}>{choice}</button>)}</div> : null}
-            {interaction.type !== "approval" ? <form className="mobileInteractionInput" onSubmit={(event) => { event.preventDefault(); if (!props.interactionInput) return; props.onInteraction(interaction.type === "clarify" ? { type: "clarify", requestId: interaction.requestId, answer: props.interactionInput } : interaction.type === "sudo" ? { type: "sudo", requestId: interaction.requestId, password: props.interactionInput } : { type: "secret", requestId: interaction.requestId, value: props.interactionInput }); }}><input type={interaction.type === "clarify" ? "text" : "password"} value={props.interactionInput} onChange={(event) => props.onInteractionInputChange(event.target.value)} placeholder={interaction.type === "clarify" ? "직접 답변 입력" : "안전하게 입력"} /><button type="submit" disabled={props.interactionSending || !props.interactionInput}><Send size={17} />전송</button></form> : null}
+            <form className="mobileInteractionInput" onSubmit={(event) => { event.preventDefault(); if (!props.interactionInput) return; props.onInteraction(interaction.type === "clarify" ? { type: "clarify", requestId: interaction.requestId, answer: props.interactionInput } : interaction.type === "sudo" ? { type: "sudo", requestId: interaction.requestId, password: props.interactionInput } : { type: "secret", requestId: interaction.requestId, value: props.interactionInput }); }}><input type={interaction.type === "clarify" ? "text" : "password"} value={props.interactionInput} onChange={(event) => props.onInteractionInputChange(event.target.value)} placeholder={interaction.type === "clarify" ? "직접 답변 입력" : "안전하게 입력"} /><button type="submit" disabled={props.interactionSending || !props.interactionInput}><Send size={17} />전송</button></form>
           </section>
         ) : null}
         <div ref={timelineEndRef} />

@@ -1898,6 +1898,37 @@
 .mobileOAuthLink code { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 13px; }
 .mobileSettingsSection .mobileSecondaryButton { margin-top: 10px; }
 
+.mobileAutonomyStatus {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--termes-success, #23845d);
+  border-radius: 12px;
+  background: var(--termes-success-soft, #e9f6f0);
+  color: var(--termes-success, #23845d);
+}
+
+.mobileAutonomyStatus > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mobileAutonomyStatus strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mobileAutonomyStatus span {
+  color: var(--termes-text-secondary, #555a64);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 @media (max-width: 359px) {
   .mobilePwaInstallBanner {
     grid-template-columns: 36px minmax(0, 1fr) auto 44px;

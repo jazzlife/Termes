@@ -435,3 +435,78 @@ test("실행 시작 전에 삭제된 stored session은 새 세션을 만들어 �
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("최대 자율 정책이 허용한 Hermes 승인은 브라우저 없이 JSON-RPC 세션에서 자동 처리한다", async () => {
+  const server = http.createServer((request, response) => {
+    if (request.url === "/api/hermes/realtime-ticket") {
+      response.writeHead(201, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ticket: "single-use", wsPath: "/ws" }));
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  const wss = new WebSocketServer({ server, path: "/ws" });
+  const methods: string[] = [];
+  wss.on("connection", (socket) => {
+    socket.on("message", (raw) => {
+      const frame = JSON.parse(raw.toString()) as { id: string; method: string; params: Record<string, unknown> };
+      methods.push(frame.method);
+      if (frame.method === "session.create") {
+        socket.send(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: {
+          session_id: "runtime-autonomy", stored_session_id: "stored-autonomy", info: {},
+        } }));
+        return;
+      }
+      if (frame.method === "prompt.submit") {
+        socket.send(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: { status: "streaming" } }));
+        socket.send(JSON.stringify({ jsonrpc: "2.0", method: "event", params: {
+          type: "approval.request",
+          session_id: "runtime-autonomy",
+          payload: { command: "systemctl restart termes-api", allowPermanent: true },
+        } }));
+        return;
+      }
+      assert.equal(frame.method, "approval.respond");
+      assert.equal(frame.params.session_id, "runtime-autonomy");
+      assert.equal(frame.params.choice, "always");
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: { resolved: 1 } }));
+      socket.send(JSON.stringify({ jsonrpc: "2.0", method: "event", params: {
+        type: "message.complete",
+        session_id: "runtime-autonomy",
+        payload: { text: "승인 대기 없이 작업을 완료했습니다." },
+      } }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  let recorded = false;
+  try {
+    const result = await executeHermesJsonRpcRun({
+      managerUrl: "http://unused",
+      serviceToken: "service",
+      realtimeBaseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+      cwd: "/workspace",
+      title: "maximum autonomy",
+      prompt: "서비스를 재시작해",
+      coordinatorInstructions: "Execute directly.",
+      expectedSpecialists: 0,
+      executionMode: "direct",
+      timeoutMs: 5_000,
+      onApprovalRequested: async () => ({
+        choice: "always",
+        reason: "maximum_autonomy_pre_authorized",
+        policyMode: "maximum",
+      }),
+      onApprovalResolved: async (_payload, resolution) => {
+        assert.equal(resolution.choice, "always");
+        recorded = true;
+      },
+    });
+    assert.deepEqual(methods, ["session.create", "prompt.submit", "approval.respond"]);
+    assert.equal(recorded, true);
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "승인 대기 없이 작업을 완료했습니다.");
+  } finally {
+    wss.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

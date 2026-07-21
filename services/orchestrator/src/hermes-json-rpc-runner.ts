@@ -12,6 +12,10 @@ export type HermesJsonRpcRunResult = {
   events: Array<{ type: string; session_id?: string; payload?: Record<string, unknown> }>;
 };
 
+export type HermesApprovalResolution =
+  | { choice: "manual"; reason: string; policyMode: "maximum" }
+  | { choice: "session" | "always"; reason: string; policyMode: "maximum" };
+
 type RunnerInput = {
   managerUrl: string;
   serviceToken: string;
@@ -34,7 +38,11 @@ type RunnerInput = {
     storedSessionId: string;
   }) => Promise<void>;
   onSessionResumed?: (identity: { runtimeSessionId: string; storedSessionId: string }) => Promise<void>;
-  onApprovalRequested?: (request: Record<string, unknown>) => Promise<void>;
+  onApprovalRequested?: (request: Record<string, unknown>) => Promise<HermesApprovalResolution>;
+  onApprovalResolved?: (
+    request: Record<string, unknown>,
+    resolution: Exclude<HermesApprovalResolution, { choice: "manual" }>,
+  ) => Promise<void>;
 };
 
 export type JsonRpcFrame = {
@@ -359,8 +367,16 @@ export async function executeHermesJsonRpcRun(input: RunnerInput): Promise<Herme
     } else if (frame.type === "approval.request") {
       if (!approvalCallback && input.onApprovalRequested) {
         approvalCallback = input.onApprovalRequested(payload)
+          .then(async (resolution) => {
+            if (resolution.choice === "manual") return;
+            await rpc.request("approval.respond", {
+              session_id: frame.session_id || runtimeSessionId,
+              choice: resolution.choice,
+            });
+            await input.onApprovalResolved?.(payload, resolution);
+          })
           .catch((error) => {
-            settle("failed", `Failed to persist Hermes approval request: ${error instanceof Error ? error.message : String(error)}`);
+            settle("failed", `Failed to resolve Hermes approval request: ${error instanceof Error ? error.message : String(error)}`);
           })
           .finally(() => { approvalCallback = null; });
       }

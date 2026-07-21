@@ -339,19 +339,6 @@ function blockedDeviceAction(action: string, params: Record<string, unknown>): s
   return blocked ? `Blocked dangerous command pattern: ${blocked}` : null;
 }
 
-function approvalRequiredAction(action: string): boolean {
-  return (
-    action === "linux.service.restart" ||
-    action === "windows.service.restart" ||
-    action.startsWith("windows.app.install") ||
-    action === "windows.app.uninstall" ||
-    action === "android.install" ||
-    action === "android.uninstall" ||
-    action === "tizen.install" ||
-    action === "tizen.uninstall"
-  );
-}
-
 function normalizeJsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -2577,8 +2564,8 @@ async function main(): Promise<void> {
       payload: { deviceCommandId: command.id, deviceId: device.id, action: command.action, status: command.status },
     });
 
-    if (blockedReason || approvalRequiredAction(input.action)) {
-      const reason = blockedReason || "Command requires approval";
+    if (blockedReason) {
+      const reason = blockedReason;
       if (input.taskId) {
         const approval = await db.pool.query<{ id: string }>(
           `

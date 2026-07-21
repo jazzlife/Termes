@@ -1,5 +1,92 @@
 export const TERMES_VERSION = "0.1.0";
 
+export const maximumAutonomyPolicy = {
+  mode: "maximum",
+  execution: {
+    approvalPolicy: "never",
+    sandbox: "danger-full-access",
+    networkAccess: true,
+  },
+  automatic: [
+    "workspace file changes",
+    "shell and process execution",
+    "network access and API calls",
+    "package installation",
+    "service restart and deployment",
+    "connected device operations",
+  ],
+  humanBoundaries: [
+    "interactive identity proof such as OAuth consent, MFA, CAPTCHA, passkey, or biometric verification",
+    "a new secret or administrator password that is not already provisioned",
+    "a financial charge, purchase, or funds transfer",
+    "account deletion or primary credential revocation",
+    "destructive root disk or host erasure",
+  ],
+} as const;
+
+export type MaximumAutonomyPolicy = typeof maximumAutonomyPolicy;
+
+export type HermesApprovalChoice = "manual" | "session" | "always";
+
+export type HermesApprovalDecision =
+  | { choice: "manual"; reason: string; policyMode: typeof maximumAutonomyPolicy.mode }
+  | { choice: Exclude<HermesApprovalChoice, "manual">; reason: string; policyMode: typeof maximumAutonomyPolicy.mode };
+
+const humanBoundaryPatterns: Array<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern: /\b(?:log\s*in|login|sign\s*in)\s+(?:to|with)\b|\b(?:gh|gcloud|aws|az|vercel|npm|docker)\s+auth\s+login\b|\b(?:oauth\s*(?:consent|authorization)|authorize\s+(?:the\s+)?account|mfa|2fa|captcha|passkey|biometric|verification\s+code)\b/i,
+    reason: "interactive_identity_proof",
+  },
+  {
+    pattern: /\b(?:enter|provide|type|input|supply)\b.{0,48}\b(?:password|passphrase|secret|api[-_ ]?key|private[-_ ]?key|credential|sudo)\b/i,
+    reason: "new_secret_or_administrator_credential",
+  },
+  {
+    pattern: /\b(?:purchase|charge|payment|paid\s+subscription|transfer\s+(?:money|funds)|send\s+(?:money|funds))\b|\b(?:checkout|subscribe)\b.{0,32}\b(?:price|card|billing|payment|paid)\b/i,
+    reason: "financial_commitment",
+  },
+  {
+    pattern: /\b(?:delete|close|terminate)\b.{0,32}\baccount\b|\b(?:revoke|rotate|reset)\b.{0,32}\b(?:primary|root|owner|master)\b.{0,16}\b(?:credential|key|token|password)\b/i,
+    reason: "account_or_primary_credential_destruction",
+  },
+  {
+    pattern: /rm\s+-rf\s+\/(?:\s|$)|\bmkfs(?:\.|\s)|\bdd\s+if=|\bformat-volume\b|remove-item\s+-recurse\s+c:\\\\|\bdiskpart\b|\bbcdedit\b/i,
+    reason: "destructive_root_host_operation",
+  },
+];
+
+function approvalText(payload: Record<string, unknown>): string {
+  const values: string[] = [];
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      values.push(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    Object.values(value as Record<string, unknown>).forEach(visit);
+  };
+  visit(payload);
+  return values.join("\n").slice(0, 32_000);
+}
+
+export function decideMaximumAutonomyApproval(payload: Record<string, unknown>): HermesApprovalDecision {
+  const text = approvalText(payload);
+  const boundary = humanBoundaryPatterns.find(({ pattern }) => pattern.test(text));
+  if (boundary) {
+    return { choice: "manual", reason: boundary.reason, policyMode: maximumAutonomyPolicy.mode };
+  }
+
+  return {
+    choice: payload.allowPermanent === false ? "session" : "always",
+    reason: "maximum_autonomy_pre_authorized",
+    policyMode: maximumAutonomyPolicy.mode,
+  };
+}
+
 export const taskStatuses = [
   "created",
   "queued",

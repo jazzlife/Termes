@@ -43,6 +43,7 @@ import ReactMarkdown from "react-markdown";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import remarkGfm from "remark-gfm";
+import { decideMaximumAutonomyApproval, maximumAutonomyPolicy } from "@termes/shared";
 import type {
   CapabilityPackageSummary,
   DeviceCommandSummary,
@@ -140,6 +141,7 @@ import {
   updateTask,
 } from "./api";
 import { HermesRealtimeClient } from "./hermes-realtime-client";
+import { ApprovalGate } from "./components/ApprovalGate";
 import { resolveExistingSelectionId } from "./selection-state";
 import { readExperienceEnvironment, resolveExperience, type ExperienceKind } from "./app/experience";
 import { readStoredTheme, resolveTheme, THEME_STORAGE_KEY, type ThemeMode } from "./app/theme";
@@ -289,19 +291,6 @@ function dangerousDeviceCommandReason(action: string, paramsText: string): strin
   ];
   const match = patterns.find((pattern) => joined.includes(pattern));
   return match ? `Blocked dangerous command pattern: ${match}` : null;
-}
-
-function deviceActionRequiresApproval(action: string): boolean {
-  return (
-    action === "linux.service.restart" ||
-    action === "windows.service.restart" ||
-    action.startsWith("windows.app.install") ||
-    action === "windows.app.uninstall" ||
-    action === "android.install" ||
-    action === "android.uninstall" ||
-    action === "tizen.install" ||
-    action === "tizen.uninstall"
-  );
 }
 
 const fileTree = [
@@ -859,7 +848,6 @@ function App(): JSX.Element {
     return filteredDevicesForPanel[0] || null;
   }, [devices, filteredDevicesForPanel, devicePlatform, deviceStatusFilter, selectedDeviceId]);
   const deviceCommandBlockedReason = dangerousDeviceCommandReason(deviceAction, deviceParamsText);
-  const deviceCommandNeedsApproval = deviceActionRequiresApproval(deviceAction);
 
   const selectedTaskEvents = useMemo(
     () => events.filter((event) => !selectedTask || event.taskId === selectedTask.id),
@@ -889,7 +877,11 @@ function App(): JSX.Element {
   const showLiveHermesProjection = Boolean(
     hermesProjection && (hermesProjection.pending || hermesProjection.busy || hermesProjection.needsInput),
   );
-  const pendingHermesInteraction = hermesProjection?.interaction ?? null;
+  const projectedHermesInteraction = hermesProjection?.interaction ?? null;
+  const pendingHermesInteraction = projectedHermesInteraction?.type === "approval"
+    && decideMaximumAutonomyApproval(projectedHermesInteraction).choice !== "manual"
+    ? null
+    : projectedHermesInteraction;
   const pendingHermesInteractionKey = pendingHermesInteraction
     ? pendingHermesInteraction.type === "approval"
       ? `approval:${hermesProjection?.sessionId || ""}:${pendingHermesInteraction.command}`
@@ -3185,7 +3177,8 @@ function App(): JSX.Element {
 
   if (experience === "mobile") {
     return (
-      <MobileExperience
+      <>
+        <MobileExperience
         account={accountPrincipal}
         projects={projects}
         tasks={tasks}
@@ -3308,12 +3301,21 @@ function App(): JSX.Element {
         onDismissPwaInstall={handleDismissPwaInstall}
         onConnectOpenAi={() => void handleOpenAiConnect()}
         onLogout={() => void handleAccountLogout()}
-      />
+        />
+        {pendingHermesInteraction?.type === "approval" ? (
+          <ApprovalGate
+            interaction={pendingHermesInteraction}
+            sending={interactionSending}
+            onDecision={(choice) => void handleHermesInteractionResponse({ type: "approval", choice })}
+          />
+        ) : null}
+      </>
     );
   }
 
   return (
-    <main className={`telegram-shell termesAliasShell mobileView-${mobileView}`}>
+    <>
+      <main className={`telegram-shell termesAliasShell mobileView-${mobileView}`}>
       <div className="aliasChrome">
         <header className="aliasHeader">
           <button className="aliasIconButton" type="button" title="Menu" onClick={() => setMobileView("list")}>
@@ -3334,6 +3336,10 @@ function App(): JSX.Element {
               <span>{hermesMode}</span>
               <Wifi size={13} />
             </button>
+            <span className="autonomyModeBadge" title={maximumAutonomyPolicy.automatic.join(" · ")}>
+              <ShieldCheck size={12} />
+              최대 자율주행
+            </span>
           </div>
           <div className="accountHeaderActions">
             <button
@@ -4007,11 +4013,6 @@ function App(): JSX.Element {
                     <CircleAlert size={15} />
                     <span>{deviceCommandBlockedReason}</span>
                   </div>
-                ) : deviceCommandNeedsApproval ? (
-                  <div className="devicePolicyBanner warning">
-                    <ShieldCheck size={15} />
-                    <span>이 명령은 실행 전 승인이 필요합니다.</span>
-                  </div>
                 ) : null}
 
                 <button
@@ -4683,7 +4684,15 @@ function App(): JSX.Element {
           </div>
         </section>
       </section>
-    </main>
+      </main>
+      {pendingHermesInteraction?.type === "approval" ? (
+        <ApprovalGate
+          interaction={pendingHermesInteraction}
+          sending={interactionSending}
+          onDecision={(choice) => void handleHermesInteractionResponse({ type: "approval", choice })}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -1,4 +1,8 @@
-import { TERMES_VERSION } from "@termes/shared";
+import {
+  TERMES_VERSION,
+  decideMaximumAutonomyApproval,
+  type HermesApprovalDecision,
+} from "@termes/shared";
 import {
   EventOutboxDispatcher,
   TERMES_TURN_STREAM,
@@ -1235,6 +1239,56 @@ async function recordApprovalRequest(
   }
 }
 
+async function recordAutonomousApproval(
+  pool: pg.Pool,
+  redis: Redis,
+  task: ClaimedTask,
+  payload: Record<string, unknown>,
+  resolution: Exclude<HermesApprovalDecision, { choice: "manual" }>,
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const inserted = await client.query<{ id: string }>(
+      `
+        insert into approvals (task_id, agent_run_id, type, status, summary, payload, decided_at)
+        values ($1, $2, 'hermes.gateway.autonomous', 'approved', $3, $4::jsonb, now())
+        returning id
+      `,
+      [
+        task.id,
+        task.agentRunId,
+        String(payload.description || payload.command || "Hermes operation automatically approved").slice(0, 500),
+        JSON.stringify({
+          ...payload,
+          autonomous: true,
+          choice: resolution.choice,
+          reason: resolution.reason,
+          policyMode: resolution.policyMode,
+        }),
+      ],
+    );
+    await appendEvent(client, redis, {
+      projectId: task.projectId,
+      taskId: task.id,
+      type: "approval.approved",
+      payload: {
+        approvalId: inserted.rows[0]?.id ?? null,
+        autonomous: true,
+        choice: resolution.choice,
+        reason: resolution.reason,
+        policyMode: resolution.policyMode,
+      },
+    });
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function syncSpecialistAssignments(
   client: pg.PoolClient,
   blueprintId: string,
@@ -1947,7 +2001,19 @@ async function runOneCycle(
           stored_session_id: storedSessionId,
         }),
       onSessionResumed: ({ runtimeSessionId }) => updateLiveSessionId(pool, task, runtimeSessionId),
-      onApprovalRequested: (payload) => recordApprovalRequest(pool, redis, task, payload),
+      onApprovalRequested: async (payload) => {
+        const resolution = decideMaximumAutonomyApproval(payload);
+        if (resolution.choice === "manual") {
+          await recordApprovalRequest(pool, redis, task, {
+            ...payload,
+            approvalReason: resolution.reason,
+            policyMode: resolution.policyMode,
+          });
+        }
+        return resolution;
+      },
+      onApprovalResolved: (payload, resolution) =>
+        recordAutonomousApproval(pool, redis, task, payload, resolution),
     });
     await completeTask(pool, redis, task, run.run_id, run);
   } catch (error) {
