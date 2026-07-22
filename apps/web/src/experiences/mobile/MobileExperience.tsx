@@ -730,22 +730,24 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
       });
     };
     return (
-      <div className="mobileProjectFolderTree" data-testid="mobile-project-folder-tree" role="tree">
+      <section className="mobileProjectFolderTreeSection">
         <div className="mobileProjectFolderTreeHeader">
           <strong>{label}</strong>
           <button className="mobileProjectFolderTreeCreateAction" disabled={projectAddBusy} type="button" onClick={onCreateFolder}><Plus size={15} />새 폴더</button>
         </div>
-        {props.projectFolders.length === 0 ? <p className="mobileProjectFolderEmpty">{emptyLabel}</p> : <>
-          {allowWorkspaceRoot ? (
-          <div className="mobileProjectFolderTreeRoot" role="treeitem">
-            <button className={selectedPath === "" ? "active" : ""} type="button" onClick={() => onSelect("")}><FolderOpen size={17} /><span>Workspace root</span></button>
-          </div>
-          ) : null}
-          <div className="mobileProjectFolderTreeChildren" role="group">
-            {mobileProjectFolderTree.map((node) => <MobileProjectFolderTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedMobileProjectFolders} onSelect={onSelect} onToggle={toggle} />)}
-          </div>
-        </>}
-      </div>
+        <div className="mobileProjectFolderTree" data-testid="mobile-project-folder-tree" role="tree">
+          {props.projectFolders.length === 0 ? <p className="mobileProjectFolderEmpty">{emptyLabel}</p> : <>
+            {allowWorkspaceRoot ? (
+              <div className="mobileProjectFolderTreeRoot" role="treeitem">
+                <button className={selectedPath === "" ? "active" : ""} type="button" onClick={() => onSelect("")}><FolderOpen size={17} /><span>Workspace root</span></button>
+              </div>
+            ) : null}
+            <div className="mobileProjectFolderTreeChildren" role="group">
+              {mobileProjectFolderTree.map((node) => <MobileProjectFolderTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedMobileProjectFolders} onSelect={onSelect} onToggle={toggle} />)}
+            </div>
+          </>}
+        </div>
+      </section>
     );
   }
 

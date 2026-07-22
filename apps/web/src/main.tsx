@@ -477,10 +477,6 @@ function ProjectDirectoryTree({
 }): React.ReactElement {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
   const nodes = useMemo(() => buildProjectDirectoryTree(folders), [folders]);
-  if (folders.length === 0) {
-    return <div className="projectDirectoryEmpty">{emptyLabel}</div>;
-  }
-
   const rootExpanded = nodes.some((node) => !collapsedPaths.has(node.folder.path) || selectedPath === node.folder.path || selectedPath.startsWith(`${node.folder.path}/`));
   const toggle = (path: string) => {
     setCollapsedPaths((current) => {
@@ -492,26 +488,30 @@ function ProjectDirectoryTree({
   };
 
   return (
-    <div className="projectDirectoryTree" role="tree">
+    <section className="projectDirectoryTreeSection">
       <div className="projectDirectoryTreeHeader">
         <strong>{label}</strong>
         <button className="projectDirectoryTreeCreateAction" type="button" disabled={createDisabled} onClick={onCreateFolder}>
           <FolderPlus size={14} /> 새 폴더
         </button>
       </div>
-      <div className="projectDirectoryTreeNode" role="treeitem" aria-expanded={rootExpanded}>
-        <div className={selectedPath === "" ? "projectDirectoryTreeRow active" : "projectDirectoryTreeRow"}>
-          <span className="projectDirectoryTreeSpacer" aria-hidden="true" />
-          <button className="projectDirectoryTreeSelect" type="button" onClick={() => onSelect("")}>
-            <FolderOpen size={15} />
-            <span>Workspace root</span>
-          </button>
+      {folders.length === 0 ? <div className="projectDirectoryEmpty">{emptyLabel}</div> : (
+        <div className="projectDirectoryTree" role="tree">
+          <div className="projectDirectoryTreeNode" role="treeitem" aria-expanded={rootExpanded}>
+            <div className={selectedPath === "" ? "projectDirectoryTreeRow active" : "projectDirectoryTreeRow"}>
+              <span className="projectDirectoryTreeSpacer" aria-hidden="true" />
+              <button className="projectDirectoryTreeSelect" type="button" onClick={() => onSelect("")}>
+                <FolderOpen size={15} />
+                <span>Workspace root</span>
+              </button>
+            </div>
+            <div className="projectDirectoryTreeChildren" role="group">
+              {nodes.map((node) => <ProjectDirectoryTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedPaths} onSelect={onSelect} onToggle={toggle} />)}
+            </div>
+          </div>
         </div>
-        <div className="projectDirectoryTreeChildren" role="group">
-          {nodes.map((node) => <ProjectDirectoryTreeNode key={node.folder.path} node={node} selectedPath={selectedPath} collapsedPaths={collapsedPaths} onSelect={onSelect} onToggle={toggle} />)}
-        </div>
-      </div>
-    </div>
+      )}
+    </section>
   );
 }
 

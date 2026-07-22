@@ -45,4 +45,5 @@ test("모바일 폴더 선택기는 접기와 펼치기가 가능한 실제 계�
 test("모바일 새 폴더 액션은 폴더 트리 헤더에 배치한다", () => {
   assert.match(mobileSource, /className="mobileProjectFolderTreeHeader"/);
   assert.match(mobileSource, /className="mobileProjectFolderTreeCreateAction"/);
+  assert.doesNotMatch(mobileSource, /className="mobileProjectFolderTree"[^>]*>\s*<div className="mobileProjectFolderTreeHeader"/);
 });

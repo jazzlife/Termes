@@ -725,17 +725,24 @@
   background: var(--termes-main, #fbfbfd);
 }
 
-.mobileProjectFolderTree .mobileProjectFolderTreeHeader {
+.mobileProjectFolderTreeSection {
+  display: grid;
+  gap: 8px;
+}
+
+.mobileProjectFolderTreeHeader {
   display: flex;
   min-height: 42px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding: 6px 8px 6px 12px;
-  border-bottom: 1px solid var(--termes-border, #d9dde6);
+  border: 1px solid var(--termes-border, #d9dde6);
+  border-radius: 11px;
+  background: var(--termes-main, #fbfbfd);
 }
 
-.mobileProjectFolderTree .mobileProjectFolderTreeHeader strong {
+.mobileProjectFolderTreeHeader strong {
   min-width: 0;
   overflow: hidden;
   color: var(--termes-text-secondary, #555a64);
@@ -745,7 +752,7 @@
   white-space: nowrap;
 }
 
-.mobileProjectFolderTree .mobileProjectFolderTreeCreateAction {
+.mobileProjectFolderTreeCreateAction {
   display: inline-flex;
   width: auto;
   min-height: 30px;

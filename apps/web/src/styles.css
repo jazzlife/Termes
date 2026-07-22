@@ -497,6 +497,11 @@ svg {
   gap: 14px;
 }
 
+.projectDirectoryTreeSection {
+  display: grid;
+  gap: 8px;
+}
+
 .projectDirectoryTree {
   display: grid;
   max-height: 240px;
@@ -513,7 +518,9 @@ svg {
   justify-content: space-between;
   gap: 12px;
   padding: 6px 8px 6px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .projectDirectoryTreeHeader strong {
