@@ -743,6 +743,14 @@ function App(): JSX.Element {
   }, [theme]);
 
   useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => {
+      setError((current) => current === error ? null : current);
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
+  useEffect(() => {
     const displayMode = window.matchMedia("(display-mode: standalone)");
     const syncDisplayMode = () => {
       const standalone = isTermesPwaStandalone();
@@ -1906,37 +1914,40 @@ function App(): JSX.Element {
     await refresh("", "");
   }
 
-  async function handleRenameTask(): Promise<void> {
-    if (!selectedTask) {
+  async function handleRenameTask(targetTask = selectedTask): Promise<void> {
+    if (!targetTask) {
       return;
     }
 
-    const nextTitle = window.prompt("대화 제목", selectedTask.title)?.trim();
-    if (!nextTitle || nextTitle === selectedTask.title) {
+    const nextTitle = window.prompt("대화 제목", targetTask.title)?.trim();
+    if (!nextTitle || nextTitle === targetTask.title) {
       return;
     }
 
-    const task = await updateTask(selectedTask.id, { title: nextTitle });
+    const task = await updateTask(targetTask.id, { title: nextTitle });
     setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
-    await refreshRuntime(task.id);
+    if (selectedTaskIdRef.current === task.id) await refreshRuntime(task.id);
   }
 
-  async function handleDeleteTask(): Promise<void> {
-    if (!selectedTask) {
+  async function handleDeleteTask(targetTask = selectedTask): Promise<void> {
+    if (!targetTask) {
       return;
     }
 
-    const ok = window.confirm(`${selectedTask.title} 대화를 삭제할까요?`);
+    const ok = window.confirm(`${targetTask.title} 대화를 삭제할까요?`);
     if (!ok) {
       return;
     }
 
-    await deleteTask(selectedTask.id);
-    const remaining = tasks.filter((task) => task.id !== selectedTask.id);
+    await deleteTask(targetTask.id);
+    const remaining = tasks.filter((task) => task.id !== targetTask.id);
     setTasks(remaining);
-    selectTaskState(remaining[0]?.id || "");
-    setTaskRuntime(null);
-    setMobileView("list");
+    if (selectedTaskIdRef.current === targetTask.id) {
+      selectTaskState(remaining[0]?.id || "");
+      setTaskRuntime(null);
+      setMobileView("list");
+      setMobileScreen("tasks");
+    }
     await refreshTaskList(selectedProject?.id);
   }
 
@@ -3278,6 +3289,16 @@ function App(): JSX.Element {
           setNewTaskMode(false);
           setTitle("");
           setMobileScreen("conversation");
+        }}
+        onRenameTask={(task) => {
+          handleRenameTask(task).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
+        }}
+        onDeleteTask={(task) => {
+          handleDeleteTask(task).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
         }}
         onStartNewTask={() => {
           setNewTaskMode(true);

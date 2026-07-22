@@ -977,6 +977,46 @@
   display: none;
 }
 
+.mobileTaskSwipe {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--termes-border-subtle, #e8eaf0);
+  background: var(--termes-surface, #fff);
+}
+
+.mobileTaskSwipeActions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: grid;
+  width: 152px;
+  grid-template-columns: 82px 70px;
+}
+
+.mobileTaskSwipeActions button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mobileTaskSwipeActions button span {
+  white-space: nowrap;
+}
+
+.mobileTaskSwipeActions .rename {
+  background: var(--termes-primary, #2563eb);
+}
+
+.mobileTaskSwipeActions .delete {
+  background: var(--termes-danger, #c33d53);
+}
+
 .mobileTaskRow {
   position: relative;
   display: grid;
@@ -987,10 +1027,17 @@
   gap: 12px;
   padding: 12px 16px;
   border: 0;
-  border-bottom: 1px solid var(--termes-border-subtle, #e8eaf0);
+  border-bottom: 0;
   background: var(--termes-main, #fbfbfd);
   color: inherit;
   text-align: left;
+  touch-action: pan-y;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 160ms ease;
+  will-change: transform;
+}
+
+.mobileTaskRow.dragging {
+  transition: none;
 }
 
 .mobileTaskState {
@@ -1181,6 +1228,13 @@
   color: var(--termes-danger, #c33d53);
   font-size: 13px;
   line-height: 1.45;
+  animation: mobileTransientNoticeIn 180ms ease-out;
+  pointer-events: none;
+}
+
+@keyframes mobileTransientNoticeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .mobileExperience:not(.mobileConversation) .mobileError {

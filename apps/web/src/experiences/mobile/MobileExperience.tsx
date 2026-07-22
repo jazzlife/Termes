@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -24,11 +25,12 @@ import {
   Smartphone,
   Square,
   Terminal,
+  Trash2,
   UserCircle2,
   Wifi,
   X,
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -108,6 +110,8 @@ interface MobileExperienceProps {
   onRegisterProjectFolder: (path: string) => Promise<void>;
   onCreateProjectFolder: (name: string, parentPath: string) => Promise<string>;
   onSelectTask: (taskId: string) => void;
+  onRenameTask: (task: TaskSummary) => void;
+  onDeleteTask: (task: TaskSummary) => void;
   onStartNewTask: () => void;
   onSearchChange: (value: string) => void;
   onInstructionsChange: (value: string) => void;
@@ -214,6 +218,7 @@ function MobileProjectFolderTreeNode({
 }
 
 export function MobileExperience(props: MobileExperienceProps): JSX.Element {
+  const taskSwipeWidth = 152;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
   const timelineRef = useRef<HTMLElement | null>(null);
@@ -221,6 +226,15 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const pinnedToLatestRef = useRef(true);
   const viewportBaselineHeightRef = useRef(0);
   const viewportOrientationRef = useRef<"portrait" | "landscape" | null>(null);
+  const taskSwipeGestureRef = useRef<{
+    taskId: string;
+    startX: number;
+    startY: number;
+    startOffset: number;
+    axis: "x" | "y" | null;
+  } | null>(null);
+  const taskSwipeOffsetRef = useRef(0);
+  const suppressTaskClickRef = useRef<string | null>(null);
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
   const [projectAddDialogOpen, setProjectAddDialogOpen] = useState(false);
   const [projectAddSource, setProjectAddSource] = useState<"github" | "folder">("github");
@@ -233,6 +247,9 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const [projectAddBusy, setProjectAddBusy] = useState(false);
   const [projectAddError, setProjectAddError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [openTaskActionsId, setOpenTaskActionsId] = useState<string | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [taskSwipeOffset, setTaskSwipeOffset] = useState(0);
 
   const scrollTimelineToLatest = useCallback(() => {
     const timeline = timelineRef.current;
@@ -278,18 +295,42 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
   const completedPlanSteps = planSteps.filter((step) => step.status === "completed").length;
   const planProgress = planSteps.length > 0 ? Math.round((completedPlanSteps / planSteps.length) * 100) : 0;
   const currentPlanStep = planSteps.find((step) => step.status === "running" || step.status === "blocked") || planSteps.at(-1);
-  const chatProgress = useMemo(() => buildMobileChatProgress({
-    sendingMessage: props.sendingMessage,
-    projection,
-    turn: latestTurn,
-    orchestration,
-  }), [latestTurn, orchestration, projection, props.sendingMessage]);
+  const visibleMessageIds = useMemo(() => new Set(visibleMessages.map((message) => message.id)), [visibleMessages]);
+  const turnProgressEntries = useMemo(() => (conversationRuntimeMatches ? props.runtime?.turns || [] : [])
+    .filter((turn) => visibleMessageIds.has(turn.userMessageId))
+    .map((turn, index, turns) => {
+      const latest = index === turns.length - 1;
+      return {
+        id: `turn:${turn.id}`,
+        userMessageId: turn.userMessageId,
+        createdAt: turn.createdAt,
+        model: buildMobileChatProgress({
+          sendingMessage: false,
+          projection: latest ? projection : null,
+          turn,
+          orchestration: latest ? orchestration : null,
+        }),
+        latest,
+      };
+    }), [conversationRuntimeMatches, orchestration, projection, props.runtime?.turns, visibleMessageIds]);
+  const sendingProgressEntry = props.sendingMessage ? {
+    id: `sending:${props.selectedTask?.id || "new"}:${visibleMessages.at(-1)?.id || "empty"}`,
+    userMessageId: null,
+    createdAt: new Date().toISOString(),
+    model: buildMobileChatProgress({
+      sendingMessage: true,
+      projection: null,
+      turn: null,
+      orchestration: null,
+    }),
+    latest: true,
+  } : null;
+  const progressEntries = sendingProgressEntry ? [...turnProgressEntries, sendingProgressEntry] : turnProgressEntries;
+  const progressById = new Map(progressEntries.map((entry) => [entry.id, entry]));
   const chatTimeline = useMemo(() => buildMobileChatTimeline({
     messages: visibleMessages,
-    progressVisible: chatProgress.visible,
-    sendingMessage: props.sendingMessage,
-    turnUserMessageId: latestTurn?.userMessageId || null,
-  }), [chatProgress.visible, latestTurn?.userMessageId, props.sendingMessage, visibleMessages]);
+    progresses: progressEntries.map(({ id, userMessageId, createdAt }) => ({ id, userMessageId, createdAt })),
+  }), [progressEntries, visibleMessages]);
   const mobileProjectFolderTree = useMemo(() => buildMobileProjectFolderTree(props.projectFolders), [props.projectFolders]);
 
   useEffect(() => {
@@ -390,6 +431,22 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     return () => window.removeEventListener("popstate", onPopState);
   }, [props.onNavigate]);
 
+  useEffect(() => {
+    if (!projectAddError) return;
+    const timer = window.setTimeout(() => {
+      setProjectAddError((current) => current === projectAddError ? null : current);
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [projectAddError]);
+
+  useEffect(() => {
+    if (openTaskActionsId && !props.tasks.some((task) => task.id === openTaskActionsId)) {
+      setOpenTaskActionsId(null);
+      setTaskSwipeOffset(0);
+      taskSwipeOffsetRef.current = 0;
+    }
+  }, [openTaskActionsId, props.tasks]);
+
   function navigate(screen: MobileScreen): void {
     window.history.pushState({ ...window.history.state, termesMobileScreen: screen }, "");
     props.onNavigate(screen);
@@ -410,6 +467,53 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
     if (!pinnedToLatestRef.current) return;
     window.requestAnimationFrame(scrollTimelineToLatest);
     window.setTimeout(scrollTimelineToLatest, 160);
+  }
+
+  function beginTaskSwipe(event: ReactPointerEvent<HTMLButtonElement>, taskId: string): void {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const startOffset = openTaskActionsId === taskId ? -taskSwipeWidth : 0;
+    if (openTaskActionsId && openTaskActionsId !== taskId) setOpenTaskActionsId(null);
+    taskSwipeGestureRef.current = {
+      taskId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffset,
+      axis: null,
+    };
+    taskSwipeOffsetRef.current = startOffset;
+    suppressTaskClickRef.current = null;
+    setDraggingTaskId(taskId);
+    setTaskSwipeOffset(startOffset);
+  }
+
+  function moveTaskSwipe(event: ReactPointerEvent<HTMLButtonElement>, taskId: string): void {
+    const gesture = taskSwipeGestureRef.current;
+    if (!gesture || gesture.taskId !== taskId) return;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.axis && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 8) {
+      gesture.axis = Math.abs(deltaX) > Math.abs(deltaY) ? "x" : "y";
+    }
+    if (gesture.axis !== "x") return;
+    event.preventDefault();
+    const nextOffset = Math.max(-taskSwipeWidth, Math.min(0, gesture.startOffset + deltaX));
+    taskSwipeOffsetRef.current = nextOffset;
+    setTaskSwipeOffset(nextOffset);
+  }
+
+  function endTaskSwipe(taskId: string): void {
+    const gesture = taskSwipeGestureRef.current;
+    if (!gesture || gesture.taskId !== taskId) return;
+    const horizontalSwipe = gesture.axis === "x";
+    const shouldOpen = horizontalSwipe
+      ? taskSwipeOffsetRef.current <= -(taskSwipeWidth * 0.34)
+      : openTaskActionsId === taskId;
+    if (horizontalSwipe) suppressTaskClickRef.current = taskId;
+    setOpenTaskActionsId(shouldOpen ? taskId : null);
+    taskSwipeOffsetRef.current = shouldOpen ? -taskSwipeWidth : 0;
+    setTaskSwipeOffset(taskSwipeOffsetRef.current);
+    setDraggingTaskId(null);
+    taskSwipeGestureRef.current = null;
   }
 
   async function handleProjectAddSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -789,27 +893,76 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
             </div>
           ) : filteredTasks.map((task) => {
             const eventCount = eventCountByTask.get(task.id) || 0;
+            const actionsOpen = openTaskActionsId === task.id;
+            const taskOffset = draggingTaskId === task.id ? taskSwipeOffset : actionsOpen ? -taskSwipeWidth : 0;
             return (
-              <button
-                className={task.id === props.selectedTask?.id ? "mobileTaskRow active" : "mobileTaskRow"}
-                key={task.id}
-                type="button"
-                data-testid={`mobile-task-${task.id}`}
-                onClick={() => {
-                  props.onSelectTask(task.id);
-                  navigate("conversation");
-                }}
-              >
-                <span className={`mobileTaskState status-${task.status}`} aria-hidden="true">
-                  {task.status === "running" ? <Loader2 className="spinIcon" size={18} /> : <MessageSquare size={18} />}
-                </span>
-                <span className="mobileTaskRowMain">
-                  <span className="mobileTaskRowTop"><strong>{task.title}</strong><time>{timeLabel(task.updatedAt)}</time></span>
-                  <span className="mobileTaskPreview">{task.instructions}</span>
-                  <span className="mobileTaskMeta"><em className={`status-${task.status}`}>{statusLabel(task.status)}</em><span>{eventCount}개 활동</span></span>
-                </span>
-                <ChevronRight className="mobileTaskChevron" size={18} aria-hidden="true" />
-              </button>
+              <div className={actionsOpen ? "mobileTaskSwipe actions-open" : "mobileTaskSwipe"} key={task.id}>
+                <div className="mobileTaskSwipeActions" aria-hidden={!actionsOpen}>
+                  <button
+                    className="rename"
+                    type="button"
+                    tabIndex={actionsOpen ? 0 : -1}
+                    aria-label={`${task.title} 이름 변경`}
+                    onClick={() => {
+                      setOpenTaskActionsId(null);
+                      setTaskSwipeOffset(0);
+                      taskSwipeOffsetRef.current = 0;
+                      props.onRenameTask(task);
+                    }}
+                  >
+                    <Pencil size={19} /><span>이름 변경</span>
+                  </button>
+                  <button
+                    className="delete"
+                    type="button"
+                    tabIndex={actionsOpen ? 0 : -1}
+                    aria-label={`${task.title} 삭제`}
+                    onClick={() => {
+                      setOpenTaskActionsId(null);
+                      setTaskSwipeOffset(0);
+                      taskSwipeOffsetRef.current = 0;
+                      props.onDeleteTask(task);
+                    }}
+                  >
+                    <Trash2 size={19} /><span>삭제</span>
+                  </button>
+                </div>
+                <button
+                  className={`${task.id === props.selectedTask?.id ? "mobileTaskRow active" : "mobileTaskRow"}${draggingTaskId === task.id ? " dragging" : ""}`}
+                  style={{ transform: `translate3d(${taskOffset}px, 0, 0)` }}
+                  type="button"
+                  data-testid={`mobile-task-${task.id}`}
+                  aria-expanded={actionsOpen}
+                  onPointerDown={(event) => beginTaskSwipe(event, task.id)}
+                  onPointerMove={(event) => moveTaskSwipe(event, task.id)}
+                  onPointerUp={() => endTaskSwipe(task.id)}
+                  onPointerCancel={() => endTaskSwipe(task.id)}
+                  onClick={() => {
+                    if (suppressTaskClickRef.current === task.id) {
+                      suppressTaskClickRef.current = null;
+                      return;
+                    }
+                    if (actionsOpen) {
+                      setOpenTaskActionsId(null);
+                      setTaskSwipeOffset(0);
+                      taskSwipeOffsetRef.current = 0;
+                      return;
+                    }
+                    props.onSelectTask(task.id);
+                    navigate("conversation");
+                  }}
+                >
+                  <span className={`mobileTaskState status-${task.status}`} aria-hidden="true">
+                    {task.status === "running" ? <Loader2 className="spinIcon" size={18} /> : <MessageSquare size={18} />}
+                  </span>
+                  <span className="mobileTaskRowMain">
+                    <span className="mobileTaskRowTop"><strong>{task.title}</strong><time>{timeLabel(task.updatedAt)}</time></span>
+                    <span className="mobileTaskPreview">{task.instructions}</span>
+                    <span className="mobileTaskMeta"><em className={`status-${task.status}`}>{statusLabel(task.status)}</em><span>{eventCount}개 활동</span></span>
+                  </span>
+                  <ChevronRight className="mobileTaskChevron" size={18} aria-hidden="true" />
+                </button>
+              </div>
             );
           })}
         </section>
@@ -978,18 +1131,23 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
               <div className="mobileMarkdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.message.content}</ReactMarkdown></div>
             </article>
           </div>
-        ) : (
-          <article className={chatProgress.active ? "mobileMessage agent live" : "mobileMessage agent progress"} key={`progress:${item.placement}`}>
-            <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{chatProgress.active ? projection?.needsInput ? "입력 필요" : "실시간" : "상태 보고"}</time></div>
-            <MobileChatProgress progress={chatProgress} />
-            {chatProgress.active ? projection?.parts.map((part, index) => {
+        ) : (() => {
+          const entry = progressById.get(item.progress.id);
+          if (!entry) return null;
+          const live = entry.latest && entry.model.active;
+          return (
+          <article className={live ? "mobileMessage agent live" : "mobileMessage agent progress"} key={`progress:${entry.id}`}>
+            <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{live ? projection?.needsInput ? "입력 필요" : "실시간" : timeLabel(entry.createdAt)}</time></div>
+            <MobileChatProgress progress={entry.model} />
+            {live ? projection?.parts.map((part, index) => {
               if (part.type === "text") return <div className="mobileMarkdown" key={`text-${index}`}><ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown></div>;
               if (part.type === "reasoning") return <details className="mobileReasoning" key={`reasoning-${index}`}><summary><Sparkles size={16} />Reasoning</summary><p>{part.text}</p></details>;
               return null;
             }) : null}
-            {chatProgress.active && projection?.error ? <div className="mobileInlineError"><CircleAlert size={17} />{projection.error}</div> : null}
+            {live && projection?.error ? <div className="mobileInlineError"><CircleAlert size={17} />{projection.error}</div> : null}
           </article>
-        ))}
+          );
+        })())}
         {interaction && interaction.type !== "approval" ? (
           <section className={`mobileInteractionCard type-${interaction.type}`}>
             <div className="mobileInteractionHeading"><ShieldCheck size={19} /><div><strong>{interaction.type === "clarify" ? "추가 정보가 필요합니다" : interaction.type === "sudo" ? "관리자 암호 입력" : "보안 값 입력"}</strong><p>{interaction.type === "clarify" ? interaction.question : interaction.type === "secret" ? interaction.prompt || interaction.envVar : "입력값은 Hermes에만 전달되며 Termes에 저장되지 않습니다."}</p></div></div>
