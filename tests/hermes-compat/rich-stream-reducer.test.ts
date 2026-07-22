@@ -67,6 +67,37 @@ test("완료 본문을 정본으로 삼고 도구 이력은 유지한다", () =>
   assert.equal(state.busy, false);
 });
 
+test("다음 명령의 시작은 이전 응답과 진행 상태를 재사용하지 않는다", () => {
+  let state = createRichStreamState("session-1");
+  state = apply(state, "message.start");
+  state = apply(state, "message.delta", { text: "이전 응답" });
+  state = apply(state, "tool.start", { name: "terminal", tool_id: "previous-tool", args: { command: "pwd" } });
+  state = apply(state, "message.complete", { text: "이전 최종 응답" });
+
+  state = apply(state, "message.start");
+
+  assert.deepEqual(state.parts, []);
+  assert.equal(state.queuedAssistant, "");
+  assert.equal(state.queuedReasoning, "");
+  assert.equal(state.toolSequence, 0);
+  assert.equal(state.pending, true);
+  assert.equal(state.busy, true);
+  assert.equal(state.needsInput, false);
+  assert.equal(state.interaction, null);
+  assert.equal(state.error, null);
+});
+
+test("진행 중인 명령의 중복 시작 이벤트는 현재 상태를 보존한다", () => {
+  let state = createRichStreamState("session-1");
+  state = apply(state, "message.start");
+  state = apply(state, "message.delta", { text: "현재 응답" });
+  state = apply(state, "message.start");
+
+  assert.deepEqual(flushRichStreamDeltas(state).parts, [{ type: "text", text: "현재 응답" }]);
+  assert.equal(state.pending, true);
+  assert.equal(state.busy, true);
+});
+
 test("세션별 차단형 입력을 손실 없이 보존하고 완료 시 해제한다", () => {
   const cases = [
     ["clarify.request", { request_id: "c1", question: "범위는?", choices: ["전체", "일부"] }, "clarify"],

@@ -1,0 +1,19 @@
+{
+  "name": "@termes/hermes-compat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./json-rpc-gateway": "./src/upstream/json-rpc-gateway.ts",
+    "./rich-stream-reducer": "./src/rich-stream-reducer.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

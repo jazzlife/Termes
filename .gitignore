@@ -20,5 +20,14 @@ coverage/
 output/
 .playwright-cli/
 
+# The workstation's global Visual Studio ignore pattern matches packages/*.
+# Keep this workspace package versioned; Docker builds copy it directly.
+!packages/
+!packages/hermes-compat/
+!packages/hermes-compat/package.json
+!packages/hermes-compat/tsconfig.json
+!packages/hermes-compat/src/
+!packages/hermes-compat/src/**
+
 .DS_Store
 mobile alias
