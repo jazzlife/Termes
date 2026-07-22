@@ -145,6 +145,7 @@ import { ApprovalGate } from "./components/ApprovalGate";
 import { resolveExistingSelectionId } from "./selection-state";
 import { readExperienceEnvironment, resolveExperience, type ExperienceKind } from "./app/experience";
 import { readStoredTheme, resolveTheme, THEME_STORAGE_KEY, type ThemeMode } from "./app/theme";
+import { shouldSubmitChatOnEnter } from "./experiences/chat-composer";
 import { MobileExperience, type MobileScreen } from "./experiences/mobile/MobileExperience";
 import {
   bootstrapTermesPwa,
@@ -4640,6 +4641,11 @@ function App(): JSX.Element {
                   <textarea
                     value={instructions}
                     onChange={(event) => setInstructions(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (!shouldSubmitChatOnEnter(event.key, event.shiftKey, event.nativeEvent.isComposing)) return;
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }}
                     placeholder={
                       selectedTask && !newTaskMode
                         ? "Hermes에게 후속 메시지를 보내세요..."

@@ -48,6 +48,7 @@ import type {
 import { maximumAutonomyPolicy } from "@termes/shared";
 import type { CodexOAuthDeviceSession, TermesAccountPrincipal } from "../../api";
 import type { ThemeMode } from "../../app/theme";
+import { shouldSubmitChatOnEnter } from "../chat-composer";
 import type { TermesPwaInstallMode } from "../../pwa";
 import { MobileChatProgress } from "./MobileChatProgress";
 import { buildMobileChatProgress, hasLiveMobileChatProjection } from "./chat-progress";
@@ -1162,7 +1163,7 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
       <form ref={composerRef} className="mobileComposer mobileSafeBottom" onSubmit={props.onSubmit} onFocus={handleComposerFocus}>
         <div className="mobileComposerSurface">
           <label className="mobileSrOnly" htmlFor="mobile-message-input">메시지</label>
-          <textarea id="mobile-message-input" ref={textareaRef} value={props.instructions} onChange={(event) => props.onInstructionsChange(event.target.value)} placeholder={props.newTaskMode ? "Termes에게 새 작업을 지시하세요…" : "후속 메시지를 입력하세요…"} required />
+          <textarea id="mobile-message-input" ref={textareaRef} value={props.instructions} onChange={(event) => props.onInstructionsChange(event.target.value)} onKeyDown={(event) => { if (!shouldSubmitChatOnEnter(event.key, event.shiftKey, event.nativeEvent.isComposing)) return; event.preventDefault(); event.currentTarget.form?.requestSubmit(); }} placeholder={props.newTaskMode ? "Termes에게 새 작업을 지시하세요…" : "후속 메시지를 입력하세요…"} required />
           <div className="mobileComposerToolbar">
             <span>{props.newTaskMode ? "새 Task · 제목 자동 생성" : "Follow-up · 전문 에이전트 자동 구성"}</span>
             <div>
