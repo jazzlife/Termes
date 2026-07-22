@@ -50,7 +50,7 @@ import type { CodexOAuthDeviceSession, TermesAccountPrincipal } from "../../api"
 import type { ThemeMode } from "../../app/theme";
 import type { TermesPwaInstallMode } from "../../pwa";
 import { MobileChatProgress } from "./MobileChatProgress";
-import { buildMobileChatProgress } from "./chat-progress";
+import { buildMobileChatProgress, hasLiveMobileChatProjection } from "./chat-progress";
 import { buildMobileChatTimeline } from "./chat-timeline";
 import "./mobile.css";
 
@@ -1136,7 +1136,7 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
         ) : (() => {
           const entry = progressById.get(item.progress.id);
           if (!entry) return null;
-          const live = entry.latest && entry.model.active;
+          const live = entry.latest && hasLiveMobileChatProjection(projection);
           return (
           <article className={live ? "mobileMessage agent live" : "mobileMessage agent progress"} key={`progress:${entry.id}`}>
             <div className="mobileMessageMeta"><span className="mobileAgentMark"><Bot size={16} /></span><strong>Hermes</strong><time>{live ? projection?.needsInput ? "입력 필요" : "실시간" : timeLabel(entry.createdAt)}</time></div>

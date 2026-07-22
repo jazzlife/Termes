@@ -29,6 +29,10 @@ export interface MobileChatProgressInput {
   orchestration: OrchestrationBlueprintSummary | null;
 }
 
+export function hasLiveMobileChatProjection(projection: HermesSessionProjectionSummary | null): boolean {
+  return Boolean(projection?.pending || projection?.busy || projection?.needsInput || projection?.error);
+}
+
 function requestRow(state: MobileChatProgressRowState): MobileChatProgressRow {
   return {
     id: "request",

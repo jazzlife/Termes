@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildMobileChatProgress } from "../../apps/web/src/experiences/mobile/chat-progress.ts";
+import {
+  buildMobileChatProgress,
+  hasLiveMobileChatProjection,
+} from "../../apps/web/src/experiences/mobile/chat-progress.ts";
 
 test("메시지 전송 직후 Hermes 응답 준비 상태를 즉시 보여준다", () => {
   const progress = buildMobileChatProgress({
@@ -48,6 +51,22 @@ test("Routing 중에는 요청 완료와 처리 경로 결정을 단계별로 �
     ["request", "completed"],
     ["routing", "running"],
   ]);
+});
+
+test("새 turn이 Hermes stream을 기다리는 동안 이전 완료 응답을 라이브로 재사용하지 않는다", () => {
+  const previousCompletedProjection = {
+    sessionId: "session-1",
+    pending: false,
+    busy: false,
+    needsInput: false,
+    interaction: null,
+    error: null,
+    updatedAt: "2026-07-22T00:00:00.000Z",
+    parts: [{ type: "text" as const, text: "이전 최종 응답" }],
+  };
+
+  assert.equal(hasLiveMobileChatProjection(previousCompletedProjection), false);
+  assert.equal(hasLiveMobileChatProjection({ ...previousCompletedProjection, pending: true }), true);
 });
 
 test("실행 중인 도구를 사람이 이해할 수 있는 현재 작업으로 보여준다", () => {
