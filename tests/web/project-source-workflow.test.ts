@@ -4,6 +4,7 @@ import test from "node:test";
 
 const appSource = readFileSync("apps/web/src/main.tsx", "utf8");
 const apiSource = readFileSync("apps/web/src/api.ts", "utf8");
+const desktopCss = readFileSync("apps/web/src/styles.css", "utf8");
 
 function drawerSection(mode: "folder" | "github"): string {
   const marker = mode === "folder"
@@ -59,4 +60,9 @@ test("Desktop 새 폴더 액션은 폴더 트리 헤더에 배치한다", () => 
   assert.match(appSource, /className="projectDirectoryTreeHeader"/);
   assert.match(appSource, /className="projectDirectoryTreeCreateAction"/);
   assert.doesNotMatch(appSource, /className="projectDirectoryTree" role="tree">\s*<div className="projectDirectoryTreeHeader"/);
+});
+
+test("Desktop 폴더 트리 헤더는 카드가 아닌 일반 라벨 행으로 렌더링한다", () => {
+  assert.match(desktopCss, /\.projectDirectoryTreeHeader \{[^}]*border: 0;[^}]*background: transparent;/);
+  assert.match(desktopCss, /\.projectDirectoryTreeCreateAction \{[^}]*min-height: 28px;/);
 });

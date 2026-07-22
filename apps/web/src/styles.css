@@ -513,27 +513,27 @@ svg {
 
 .projectDirectoryTreeHeader {
   display: flex;
-  min-height: 42px;
+  min-height: 28px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 8px 6px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.025);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .projectDirectoryTreeHeader strong {
-  color: #dbe4ef;
+  color: #cbd5e1;
   font-size: 12px;
+  font-weight: 700;
 }
 
 .projectDirectoryTreeCreateAction {
   display: inline-flex;
-  min-height: 30px;
+  min-height: 28px;
   align-items: center;
   gap: 5px;
-  padding: 0 9px;
+  padding: 0 8px;
   border: 1px solid rgba(216, 199, 120, 0.36);
   border-radius: 7px;
   background: rgba(216, 199, 120, 0.1);
@@ -642,7 +642,8 @@ svg {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(4, 10, 20, 0.68);
+  background: rgba(4, 10, 20, 0.78);
+  backdrop-filter: blur(3px);
 }
 
 .projectFolderCreateDialog {

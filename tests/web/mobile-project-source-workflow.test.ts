@@ -4,6 +4,7 @@ import test from "node:test";
 
 const appSource = readFileSync("apps/web/src/main.tsx", "utf8");
 const mobileSource = readFileSync("apps/web/src/experiences/mobile/MobileExperience.tsx", "utf8");
+const mobileCss = readFileSync("apps/web/src/experiences/mobile/mobile.css", "utf8");
 
 test("모바일 GitHub 프로젝트 탭은 인증·저장소·워크스페이스 폴더 선택을 제공한다", () => {
   assert.match(mobileSource, /githubStatus: GitHubConnectionSummary \| null/);
@@ -46,4 +47,11 @@ test("모바일 새 폴더 액션은 폴더 트리 헤더에 배치한다", () =
   assert.match(mobileSource, /className="mobileProjectFolderTreeHeader"/);
   assert.match(mobileSource, /className="mobileProjectFolderTreeCreateAction"/);
   assert.doesNotMatch(mobileSource, /className="mobileProjectFolderTree"[^>]*>\s*<div className="mobileProjectFolderTreeHeader"/);
+});
+
+test("모바일 폴더 트리 헤더는 일반 라벨이고 프로젝트 추가 다이얼로그는 중앙 모달이다", () => {
+  assert.match(mobileCss, /\.mobileProjectFolderTreeHeader \{[^}]*border: 0;[^}]*background: transparent;/);
+  assert.match(mobileCss, /\.mobileProjectAddLayer \{[^}]*align-items: center;/);
+  assert.match(mobileCss, /\.mobileProjectAddBackdrop \{[^}]*background: rgba\(12, 16, 26, 0\.78\);/);
+  assert.match(mobileCss, /\.mobileProjectAddDialog \{[^}]*border-radius: 18px;/);
 });
