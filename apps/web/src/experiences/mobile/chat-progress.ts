@@ -97,6 +97,13 @@ export function buildMobileChatProgress(input: MobileChatProgressInput): MobileC
     };
   }
 
+  // A completed turn already has its final assistant message in the timeline.
+  // Keeping its progress card around causes it to overlap the next turn's
+  // optimistic sending card until the refreshed runtime reaches the client.
+  if (input.turn?.status === "completed" && !hasLiveMobileChatProjection(input.projection)) {
+    return { visible: false, active: false, label: "", rows: [] };
+  }
+
   if (input.turn?.status === "requested" || input.turn?.status === "routing") {
     return {
       visible: true,

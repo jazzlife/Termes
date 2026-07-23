@@ -28,6 +28,36 @@ test("메시지 전송 직후 Hermes 응답 준비 상태를 즉시 보여준다
   ]);
 });
 
+test("완료된 이전 turn은 다음 명령의 상태 버블과 함께 다시 렌더링하지 않는다", () => {
+  const progress = buildMobileChatProgress({
+    sendingMessage: false,
+    projection: {
+      sessionId: "session-1",
+      pending: false,
+      busy: false,
+      needsInput: false,
+      interaction: null,
+      error: null,
+      updatedAt: "2026-07-20T00:00:02.000Z",
+      parts: [{ type: "text", text: "완료된 응답" }],
+    },
+    turn: {
+      id: "turn-1",
+      taskId: "task-1",
+      userMessageId: "message-1",
+      status: "completed",
+      failureCode: null,
+      createdAt: "2026-07-20T00:00:00.000Z",
+      completedAt: "2026-07-20T00:00:02.000Z",
+      decision: null,
+    },
+    orchestration: null,
+  });
+
+  assert.equal(progress.visible, false);
+  assert.equal(progress.rows.length, 0);
+});
+
 test("Routing 중에는 요청 완료와 처리 경로 결정을 단계별로 보여준다", () => {
   const progress = buildMobileChatProgress({
     sendingMessage: false,

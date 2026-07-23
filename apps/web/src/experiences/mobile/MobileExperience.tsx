@@ -313,7 +313,8 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
         }),
         latest,
       };
-    }), [conversationRuntimeMatches, orchestration, projection, props.runtime?.turns, visibleMessageIds]);
+    })
+    .filter((entry) => entry.model.visible), [conversationRuntimeMatches, orchestration, projection, props.runtime?.turns, visibleMessageIds]);
   const sendingProgressEntry = props.sendingMessage ? {
     id: `sending:${props.selectedTask?.id || "new"}:${visibleMessages.at(-1)?.id || "empty"}`,
     userMessageId: null,
