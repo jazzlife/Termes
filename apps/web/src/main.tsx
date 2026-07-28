@@ -102,7 +102,6 @@ import {
   fetchHermesRun,
   fetchHermesUpstreamDiagnostics,
   fetchOpenAiAccount,
-  fetchTermesAccounts,
   fetchTermesSession,
   fetchProjects,
   fetchTaskPlan,
@@ -130,7 +129,6 @@ import {
   updateDevice,
   type HermesStreamEvent,
   type CodexOAuthDeviceSession,
-  type TermesAccountOption,
   type TermesAccountPrincipal,
   streamHermesResponse,
   streamHermesRunEvents,
@@ -624,10 +622,9 @@ function firstId(value: unknown, listKey: "sessions" | "jobs", idKeys: string[])
 }
 
 function App(): JSX.Element {
-  const [accountOptions, setAccountOptions] = useState<TermesAccountOption[]>([]);
   const [accountPrincipal, setAccountPrincipal] = useState<TermesAccountPrincipal | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState("");
-  const [accountAccessCode, setAccountAccessCode] = useState("");
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
   const [accountAuthLoading, setAccountAuthLoading] = useState(true);
   const [accountAuthBusy, setAccountAuthBusy] = useState(false);
   const [accountAuthError, setAccountAuthError] = useState<string | null>(null);
@@ -816,12 +813,8 @@ function App(): JSX.Element {
   }, [accountPrincipal?.accountId, selectedProjectId, selectedTaskId]);
 
   useEffect(() => {
-    Promise.all([fetchTermesAccounts(), fetchTermesSession()])
-      .then(([accounts, principal]) => {
-        setAccountOptions(accounts);
-        setAccountPrincipal(principal);
-        setSelectedAccountId(principal?.accountId || accounts[0]?.accountId || "");
-      })
+    fetchTermesSession()
+      .then(setAccountPrincipal)
       .catch((cause: unknown) => {
         setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
       })
@@ -1471,13 +1464,13 @@ function App(): JSX.Element {
 
   async function handleAccountLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (!selectedAccountId || !accountAccessCode) return;
+    if (!accountEmail.trim() || !accountPassword) return;
     setAccountAuthBusy(true);
     setAccountAuthError(null);
     try {
-      const principal = await loginTermesAccount(selectedAccountId, accountAccessCode);
+      const principal = await loginTermesAccount(accountEmail, accountPassword);
       setAccountPrincipal(principal);
-      setAccountAccessCode("");
+      setAccountPassword("");
     } catch (cause) {
       setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -3134,54 +3127,44 @@ function App(): JSX.Element {
             <span className="accountGateMark"><Sparkles size={22} /></span>
             <div>
               <p className="accountGateEyebrow">TERMES</p>
-              <h1 id="account-gate-title">Workspace에 들어가기</h1>
+              <h1 id="account-gate-title">회원 로그인</h1>
             </div>
           </div>
           <p className="accountGateDescription">
-            질문과 실행 결과는 선택한 Account Cell 안에서만 처리됩니다.
+            로그인한 회원의 Workspace에서 작업을 이어갑니다.
           </p>
-          <form className="accountGateForm" onSubmit={(event) => void handleAccountLogin(event)}>
-            <fieldset>
-              <legend>Account</legend>
-              <div className="accountChoiceList">
-                {accountOptions.map((account) => (
-                  <label className={selectedAccountId === account.accountId ? "accountChoice active" : "accountChoice"} key={account.accountId}>
-                    <input
-                      type="radio"
-                      name="termes-account"
-                      value={account.accountId}
-                      checked={selectedAccountId === account.accountId}
-                      onChange={() => setSelectedAccountId(account.accountId)}
-                    />
-                    <span className="accountChoiceIcon"><UserCircle2 size={20} /></span>
-                    <span>
-                      <strong>{account.displayName}</strong>
-                      <small>{account.workspaceKey}</small>
-                    </span>
-                    <CheckCircle2 className="accountChoiceCheck" size={18} />
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+          <form className="accountGateForm" aria-busy={accountAuthBusy} onSubmit={(event) => void handleAccountLogin(event)}>
             <label className="accountAccessField">
-              <span>접근 코드</span>
+              <span>이메일</span>
+              <input
+                type="email"
+                autoComplete="email"
+                value={accountEmail}
+                onChange={(event) => setAccountEmail(event.target.value)}
+                placeholder="이메일을 입력하세요"
+                disabled={accountAuthBusy}
+                autoFocus
+                required
+              />
+            </label>
+            <label className="accountAccessField">
+              <span>비밀번호</span>
               <input
                 type="password"
                 autoComplete="current-password"
-                value={accountAccessCode}
-                onChange={(event) => setAccountAccessCode(event.target.value)}
-                minLength={12}
-                placeholder="Account 접근 코드를 입력하세요"
+                value={accountPassword}
+                onChange={(event) => setAccountPassword(event.target.value)}
+                placeholder="비밀번호를 입력하세요"
+                disabled={accountAuthBusy}
                 required
               />
             </label>
             {accountAuthError ? <p className="accountGateError" role="alert">{accountAuthError}</p> : null}
-            <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !selectedAccountId || accountAccessCode.length < 12}>
+            <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !accountEmail.trim() || !accountPassword}>
               {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
               <span>{accountAuthBusy ? "확인 중" : "계속"}</span>
             </button>
           </form>
-          <p className="accountGateFootnote">OpenAI API key는 사용하지 않습니다. 서버가 공유 ChatGPT OAuth 연결을 관리합니다.</p>
         </section>
       </main>
     );

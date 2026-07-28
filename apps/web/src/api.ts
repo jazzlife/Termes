@@ -32,25 +32,15 @@ export interface HermesStreamEvent {
   data: unknown;
 }
 
-export interface TermesAccountOption {
+export interface TermesAccountPrincipal {
   accountId: string;
   displayName: string;
   workspaceKey: string;
-}
-
-export interface TermesAccountPrincipal extends TermesAccountOption {
   workspaceId: string;
   runtimeCellId: string;
   email: string;
   workspaceRoot: string;
   canManageSharedOAuth: boolean;
-}
-
-export async function fetchTermesAccounts(): Promise<TermesAccountOption[]> {
-  const response = await fetch("/api/account-auth/accounts");
-  const body = await response.json() as { accounts?: TermesAccountOption[]; error?: string };
-  if (!response.ok || !body.accounts) throw new Error(body.error || `Account list failed: ${response.status}`);
-  return body.accounts;
 }
 
 export async function fetchTermesSession(): Promise<TermesAccountPrincipal | null> {
@@ -60,11 +50,11 @@ export async function fetchTermesSession(): Promise<TermesAccountPrincipal | nul
   return body.principal || null;
 }
 
-export async function loginTermesAccount(accountId: string, accessCode: string): Promise<TermesAccountPrincipal> {
+export async function loginTermesAccount(email: string, password: string): Promise<TermesAccountPrincipal> {
   const response = await fetch("/api/account-auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ accountId, accessCode }),
+    body: JSON.stringify({ email, password }),
   });
   const body = await response.json() as { principal?: TermesAccountPrincipal; error?: string };
   if (!response.ok || !body.principal) throw new Error(body.error || `Account login failed: ${response.status}`);

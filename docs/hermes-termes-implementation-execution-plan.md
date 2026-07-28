@@ -149,7 +149,7 @@ Hermes profile은 상태 분리 도구이지 Termes 내부 계정의 보안 경�
 - 계정 접근 hash는 설정에만 두고 원문은 `/data/docker_data/termes/secrets/account-access-codes.json` 0600에 보관
 - Redis에는 무작위 session token의 SHA-256 key와 account ID만 저장
 - 요청마다 DB의 active account workspace/runtime cell을 재조회하여 비활성 계정 session을 즉시 무효화
-- 모바일 진입 화면에서 A/B를 선택하며 로그인 후 동일 conversation-first UI를 사용
+- 공개 Account 목록 없이 이메일과 개인 비밀번호로 로그인한 뒤 동일 conversation-first UI를 사용
 
 남은 계정 단계는 정적 Cell 선언을 운영 lifecycle로 전환하는 것이다.
 

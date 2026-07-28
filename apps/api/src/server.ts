@@ -1322,7 +1322,6 @@ async function main(): Promise<void> {
       || pathname === "/healthz"
       || pathname === "/api/health"
       || pathname === "/api/healthz"
-      || pathname === "/api/account-auth/accounts"
       || pathname === "/api/account-auth/login"
       || pathname === "/api/account-auth/session"
       || pathname === "/api/hermes/ws";

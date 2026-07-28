@@ -32,8 +32,8 @@ type AccountRow = {
 };
 
 const loginSchema = z.object({
-  accountId: z.string().uuid(),
-  accessCode: z.string().min(12).max(512),
+  email: z.string().trim().email().max(320),
+  password: z.string().min(1).max(512),
 });
 
 function sha256(value: string): Buffer {
@@ -77,11 +77,12 @@ function sessionCookie(token: string, request: FastifyRequest, maxAge: number): 
   ].join("; ");
 }
 
-function remoteKey(request: FastifyRequest, accountId: string): string {
-  const forwarded = request.headers["x-forwarded-for"];
-  const address = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim()
-    || request.ip;
-  return `termes.login-attempt.${sha256(`${address}:${accountId}`).toString("hex")}`;
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function remoteKey(request: FastifyRequest, email: string): string {
+  return `termes.login-attempt.${sha256(`${request.ip}:${normalizeEmail(email)}`).toString("hex")}`;
 }
 
 export function parseAccountAccessHashes(raw: string): Map<string, Buffer> {
@@ -116,6 +117,39 @@ async function activeAccount(db: Db, accountId: string): Promise<AccountPrincipa
       limit 1
     `,
     [accountId],
+  );
+  const row = result.rows[0];
+  return row ? {
+    accountId: row.account_id,
+    workspaceId: row.workspace_id,
+    runtimeCellId: row.runtime_cell_id,
+    email: row.email,
+    displayName: row.display_name,
+    workspaceKey: row.workspace_key,
+    workspaceRoot: row.workspace_root,
+    canManageSharedOAuth: false,
+  } : null;
+}
+
+async function activeAccountByEmail(db: Db, email: string): Promise<AccountPrincipal | null> {
+  const result = await db.pool.query<AccountRow>(
+    `
+      select
+        u.id as account_id,
+        aw.id as workspace_id,
+        rc.id as runtime_cell_id,
+        u.email,
+        u.display_name,
+        aw.key as workspace_key,
+        aw.root_path as workspace_root
+      from users u
+      join account_workspaces aw on aw.account_id = u.id and aw.status = 'active'
+      join runtime_cells rc on rc.account_id = u.id and rc.workspace_id = aw.id and rc.status = 'active'
+      where lower(u.email) = $1
+      order by aw.created_at asc
+      limit 1
+    `,
+    [normalizeEmail(email)],
   );
   const row = result.rows[0];
   return row ? {
@@ -220,47 +254,25 @@ export function createAccountAuth(dependencies: {
   }
 
   async function registerRoutes(app: FastifyInstance): Promise<void> {
-    app.get("/api/account-auth/accounts", async () => {
-      const ids = [...accessHashes.keys()];
-      const result = await db.pool.query<{
-        account_id: string;
-        display_name: string;
-        workspace_key: string;
-      }>(
-        `
-          select u.id as account_id, u.display_name, aw.key as workspace_key
-          from users u
-          join account_workspaces aw on aw.account_id = u.id and aw.status = 'active'
-          join runtime_cells rc on rc.account_id = u.id and rc.workspace_id = aw.id and rc.status = 'active'
-          where u.id = any($1::uuid[])
-          order by case when u.id = $2 then 0 else 1 end, u.display_name asc
-        `,
-        [ids, oauthAdminAccountId],
-      );
-      return {
-        accounts: result.rows.map((row) => ({
-          accountId: row.account_id,
-          displayName: row.display_name,
-          workspaceKey: row.workspace_key,
-        })),
-      };
-    });
-
     app.post("/api/account-auth/login", async (request, reply) => {
-      const input = loginSchema.parse(request.body);
-      const attemptsKey = remoteKey(request, input.accountId);
+      const parsed = loginSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(401).send({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+      }
+      const input = parsed.data;
+      const email = normalizeEmail(input.email);
+      const attemptsKey = remoteKey(request, email);
       const attempts = await redis.incr(attemptsKey);
       if (attempts === 1) await redis.expire(attemptsKey, LOGIN_WINDOW_SECONDS);
       if (attempts > LOGIN_ATTEMPT_LIMIT) {
         return reply.code(429).send({ error: "Too many login attempts" });
       }
-      const expected = accessHashes.get(input.accountId);
-      const presented = sha256(input.accessCode);
-      if (!expected || expected.byteLength !== presented.byteLength || !timingSafeEqual(expected, presented)) {
-        return reply.code(401).send({ error: "Invalid account or access code" });
+      const principal = await activeAccountByEmail(db, email);
+      const expected = principal ? accessHashes.get(principal.accountId) : undefined;
+      const presented = sha256(input.password);
+      if (!principal || !expected || expected.byteLength !== presented.byteLength || !timingSafeEqual(expected, presented)) {
+        return reply.code(401).send({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
       }
-      const principal = await activeAccount(db, input.accountId);
-      if (!principal) return reply.code(403).send({ error: "Account runtime cell is not active" });
       const token = randomBytes(32).toString("base64url");
       await redis.set(
         sessionKey(token),

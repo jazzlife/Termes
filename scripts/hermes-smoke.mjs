@@ -160,19 +160,19 @@ async function waitForTaskAssistants(taskId, minimumCount, timeoutMs = 300_000) 
 async function main() {
   console.log(`# Termes Hermes smoke target: ${baseUrl}`);
 
-  const accountId = process.env.TERMES_ACCOUNT_ID || "00000000-0000-0000-0000-000000000001";
-  const accessCode = process.env.TERMES_ACCOUNT_ACCESS_CODE || "";
-  assert(accessCode.length >= 12, "TERMES_ACCOUNT_ACCESS_CODE is required for authenticated Hermes smoke");
+  const email = process.env.TERMES_ACCOUNT_EMAIL || "master@termes.local";
+  const password = process.env.TERMES_ACCOUNT_ACCESS_CODE || "";
+  assert(password.length > 0, "TERMES_ACCOUNT_ACCESS_CODE is required for authenticated Hermes smoke");
   const loginResponse = await fetch(`${baseUrl}/api/account-auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ accountId, accessCode }),
+    body: JSON.stringify({ email, password }),
   });
   const loginText = await loginResponse.text();
   assert(loginResponse.ok, `Termes account login failed with ${loginResponse.status}: ${loginText}`);
   sessionCookie = (loginResponse.headers.get("set-cookie") || "").split(";")[0] || "";
   assert(sessionCookie.startsWith("termes_session="), "Termes account login did not return a session cookie");
-  record("account_login", accountId);
+  record("account_login", "authenticated");
 
   const capabilities = await request("/capabilities");
   assert(capabilities.features?.chat_completions, "chat completions feature is not advertised");

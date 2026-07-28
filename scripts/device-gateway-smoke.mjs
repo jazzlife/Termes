@@ -240,13 +240,13 @@ async function waitForTaskPlan(taskId) {
 }
 
 async function main() {
-  const accountId = process.env.TERMES_ACCOUNT_ID || "00000000-0000-0000-0000-000000000001";
-  const accessCode = process.env.TERMES_ACCOUNT_ACCESS_CODE || "";
-  assert(accessCode.length >= 12, "TERMES_ACCOUNT_ACCESS_CODE is required for authenticated device smoke");
+  const email = process.env.TERMES_ACCOUNT_EMAIL || "master@termes.local";
+  const password = process.env.TERMES_ACCOUNT_ACCESS_CODE || "";
+  assert(password.length > 0, "TERMES_ACCOUNT_ACCESS_CODE is required for authenticated device smoke");
   const loginResponse = await fetch(`${baseUrl}/api/account-auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ accountId, accessCode }),
+    body: JSON.stringify({ email, password }),
   });
   const loginText = await loginResponse.text();
   assert(loginResponse.ok, `Termes account login failed with ${loginResponse.status}: ${loginText}`);
