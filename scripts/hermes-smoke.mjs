@@ -160,13 +160,13 @@ async function waitForTaskAssistants(taskId, minimumCount, timeoutMs = 300_000) 
 async function main() {
   console.log(`# Termes Hermes smoke target: ${baseUrl}`);
 
-  const email = process.env.TERMES_ACCOUNT_EMAIL || "master@termes.local";
+  const loginId = process.env.TERMES_ACCOUNT_LOGIN_ID || "master";
   const password = process.env.TERMES_ACCOUNT_ACCESS_CODE || "";
   assert(password.length > 0, "TERMES_ACCOUNT_ACCESS_CODE is required for authenticated Hermes smoke");
   const loginResponse = await fetch(`${baseUrl}/api/account-auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ loginId, password }),
   });
   const loginText = await loginResponse.text();
   assert(loginResponse.ok, `Termes account login failed with ${loginResponse.status}: ${loginText}`);

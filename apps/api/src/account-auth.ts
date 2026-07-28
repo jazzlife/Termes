@@ -32,7 +32,7 @@ type AccountRow = {
 };
 
 const loginSchema = z.object({
-  email: z.string().trim().email().max(320),
+  loginId: z.string().trim().min(1).max(128),
   password: z.string().min(1).max(512),
 });
 
@@ -77,12 +77,12 @@ function sessionCookie(token: string, request: FastifyRequest, maxAge: number): 
   ].join("; ");
 }
 
-function normalizeEmail(value: string): string {
+function normalizeLoginId(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function remoteKey(request: FastifyRequest, email: string): string {
-  return `termes.login-attempt.${sha256(`${request.ip}:${normalizeEmail(email)}`).toString("hex")}`;
+function remoteKey(request: FastifyRequest, loginId: string): string {
+  return `termes.login-attempt.${sha256(`${request.ip}:${normalizeLoginId(loginId)}`).toString("hex")}`;
 }
 
 export function parseAccountAccessHashes(raw: string): Map<string, Buffer> {
@@ -131,7 +131,7 @@ async function activeAccount(db: Db, accountId: string): Promise<AccountPrincipa
   } : null;
 }
 
-async function activeAccountByEmail(db: Db, email: string): Promise<AccountPrincipal | null> {
+async function activeAccountByLoginId(db: Db, loginId: string): Promise<AccountPrincipal | null> {
   const result = await db.pool.query<AccountRow>(
     `
       select
@@ -145,11 +145,11 @@ async function activeAccountByEmail(db: Db, email: string): Promise<AccountPrinc
       from users u
       join account_workspaces aw on aw.account_id = u.id and aw.status = 'active'
       join runtime_cells rc on rc.account_id = u.id and rc.workspace_id = aw.id and rc.status = 'active'
-      where lower(u.email) = $1
+      where lower(btrim(u.login_id)) = $1
       order by aw.created_at asc
       limit 1
     `,
-    [normalizeEmail(email)],
+    [normalizeLoginId(loginId)],
   );
   const row = result.rows[0];
   return row ? {
@@ -257,21 +257,21 @@ export function createAccountAuth(dependencies: {
     app.post("/api/account-auth/login", async (request, reply) => {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) {
-        return reply.code(401).send({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+        return reply.code(401).send({ error: "아이디 또는 비밀번호가 올바르지 않습니다." });
       }
       const input = parsed.data;
-      const email = normalizeEmail(input.email);
-      const attemptsKey = remoteKey(request, email);
+      const loginId = normalizeLoginId(input.loginId);
+      const attemptsKey = remoteKey(request, loginId);
       const attempts = await redis.incr(attemptsKey);
       if (attempts === 1) await redis.expire(attemptsKey, LOGIN_WINDOW_SECONDS);
       if (attempts > LOGIN_ATTEMPT_LIMIT) {
         return reply.code(429).send({ error: "Too many login attempts" });
       }
-      const principal = await activeAccountByEmail(db, email);
+      const principal = await activeAccountByLoginId(db, loginId);
       const expected = principal ? accessHashes.get(principal.accountId) : undefined;
       const presented = sha256(input.password);
       if (!principal || !expected || expected.byteLength !== presented.byteLength || !timingSafeEqual(expected, presented)) {
-        return reply.code(401).send({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+        return reply.code(401).send({ error: "아이디 또는 비밀번호가 올바르지 않습니다." });
       }
       const token = randomBytes(32).toString("base64url");
       await redis.set(

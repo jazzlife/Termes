@@ -50,11 +50,11 @@ export async function fetchTermesSession(): Promise<TermesAccountPrincipal | nul
   return body.principal || null;
 }
 
-export async function loginTermesAccount(email: string, password: string): Promise<TermesAccountPrincipal> {
+export async function loginTermesAccount(loginId: string, password: string): Promise<TermesAccountPrincipal> {
   const response = await fetch("/api/account-auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ loginId, password }),
   });
   const body = await response.json() as { principal?: TermesAccountPrincipal; error?: string };
   if (!response.ok || !body.principal) throw new Error(body.error || `Account login failed: ${response.status}`);

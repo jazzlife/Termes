@@ -54,6 +54,7 @@ function accountRow(accountId: string) {
       ? "20000000-0000-0000-0000-000000000001"
       : "20000000-0000-0000-0000-000000000002",
     email: `${suffix}@termes.local`,
+    login_id: accountId === accountA ? "master" : "cell-b",
     display_name: `Account ${suffix.toUpperCase()}`,
     workspace_key: `account-${suffix}`,
     workspace_root: `/workspaces/${accountId}`,
@@ -64,9 +65,9 @@ function fakeDb() {
   return {
     pool: {
       async query(sql: string, params: unknown[]) {
-        if (/where lower\(u\.email\) = \$1/i.test(sql)) {
-          const email = String(params[0]).toLowerCase();
-          const row = [accountRow(accountA), accountRow(accountB)].find((candidate) => candidate.email === email);
+        if (/where lower\(btrim\(u\.login_id\)\) = \$1/i.test(sql)) {
+          const loginId = String(params[0]).toLowerCase();
+          const row = [accountRow(accountA), accountRow(accountB)].find((candidate) => candidate.login_id === loginId);
           return { rows: row ? [row] : [] };
         }
         const accountId = String(params[0]);
@@ -100,7 +101,7 @@ test("계정 접근 hash 설정은 UUID와 SHA-256만 허용한다", () => {
   assert.throws(() => parseAccountAccessHashes(JSON.stringify({ [accountA]: "plain-text" })));
 });
 
-test("회원 로그인은 이메일을 정규화하고 HttpOnly 세션을 발급한 뒤 활성 Workspace로 재인증한다", async () => {
+test("회원 로그인은 아이디를 정규화하고 HttpOnly 세션을 발급한 뒤 활성 Workspace로 재인증한다", async () => {
   const app = Fastify();
   const auth = createAccountAuth({
     db: fakeDb() as never,
@@ -116,15 +117,15 @@ test("회원 로그인은 이메일을 정규화하고 HttpOnly 세션을 발급
   const denied = await app.inject({
     method: "POST",
     url: "/api/account-auth/login",
-    payload: { email: "a@termes.local", password: "incorrect-password" },
+    payload: { loginId: "master", password: "incorrect-password" },
   });
   assert.equal(denied.statusCode, 401);
-  assert.equal(denied.json().error, "이메일 또는 비밀번호가 올바르지 않습니다.");
+  assert.equal(denied.json().error, "아이디 또는 비밀번호가 올바르지 않습니다.");
 
   const unknown = await app.inject({
     method: "POST",
     url: "/api/account-auth/login",
-    payload: { email: "unknown@termes.local", password: "incorrect-password" },
+    payload: { loginId: "unknown", password: "incorrect-password" },
   });
   assert.equal(unknown.statusCode, 401);
   assert.equal(unknown.json().error, denied.json().error);
@@ -132,15 +133,23 @@ test("회원 로그인은 이메일을 정규화하고 HttpOnly 세션을 발급
   const malformed = await app.inject({
     method: "POST",
     url: "/api/account-auth/login",
-    payload: { email: "not-an-email", password: "x" },
+    payload: { loginId: "", password: "x" },
   });
   assert.equal(malformed.statusCode, 401);
   assert.deepEqual(malformed.json(), denied.json());
 
+  const legacyEmailPayload = await app.inject({
+    method: "POST",
+    url: "/api/account-auth/login",
+    payload: { email: "a@termes.local", password: accessCodeA },
+  });
+  assert.equal(legacyEmailPayload.statusCode, 401);
+  assert.deepEqual(legacyEmailPayload.json(), denied.json());
+
   const login = await app.inject({
     method: "POST",
     url: "/api/account-auth/login",
-    payload: { email: " A@TERMES.LOCAL ", password: accessCodeA },
+    payload: { loginId: " MASTER ", password: accessCodeA },
   });
   assert.equal(login.statusCode, 200);
   assert.equal(login.json().principal.accountId, accountA);
@@ -162,7 +171,7 @@ test("회원 로그인은 이메일을 정규화하고 HttpOnly 세션을 발급
   await app.close();
 });
 
-test("동일 IP와 정규화된 회원 이메일의 반복 로그인 실패는 15분 창에서 차단한다", async () => {
+test("동일 IP와 정규화된 회원 아이디의 반복 로그인 실패는 15분 창에서 차단한다", async () => {
   const app = Fastify();
   const auth = createAccountAuth({
     db: fakeDb() as never,
@@ -177,7 +186,7 @@ test("동일 IP와 정규화된 회원 이메일의 반복 로그인 실패는 1
       url: "/api/account-auth/login",
       remoteAddress: "203.0.113.9",
       headers: { "x-forwarded-for": `198.51.100.${attempt}` },
-      payload: { email: attempt % 2 === 0 ? "B@TERMES.LOCAL" : "b@termes.local", password: "incorrect-password" },
+      payload: { loginId: attempt % 2 === 0 ? "CELL-B" : "cell-b", password: "incorrect-password" },
     });
     assert.equal(response.statusCode, 401);
   }
@@ -186,7 +195,7 @@ test("동일 IP와 정규화된 회원 이메일의 반복 로그인 실패는 1
     url: "/api/account-auth/login",
     remoteAddress: "203.0.113.9",
     headers: { "x-forwarded-for": "198.51.100.250" },
-    payload: { email: "b@termes.local", password: accessCodeB },
+    payload: { loginId: "cell-b", password: accessCodeB },
   });
   assert.equal(blocked.statusCode, 429);
   await app.close();

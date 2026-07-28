@@ -623,7 +623,7 @@ function firstId(value: unknown, listKey: "sessions" | "jobs", idKeys: string[])
 
 function App(): JSX.Element {
   const [accountPrincipal, setAccountPrincipal] = useState<TermesAccountPrincipal | null>(null);
-  const [accountEmail, setAccountEmail] = useState("");
+  const [accountLoginId, setAccountLoginId] = useState("");
   const [accountPassword, setAccountPassword] = useState("");
   const [accountAuthLoading, setAccountAuthLoading] = useState(true);
   const [accountAuthBusy, setAccountAuthBusy] = useState(false);
@@ -1464,11 +1464,11 @@ function App(): JSX.Element {
 
   async function handleAccountLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (!accountEmail.trim() || !accountPassword) return;
+    if (!accountLoginId.trim() || !accountPassword) return;
     setAccountAuthBusy(true);
     setAccountAuthError(null);
     try {
-      const principal = await loginTermesAccount(accountEmail, accountPassword);
+      const principal = await loginTermesAccount(accountLoginId, accountPassword);
       setAccountPrincipal(principal);
       setAccountPassword("");
     } catch (cause) {
@@ -3135,13 +3135,15 @@ function App(): JSX.Element {
           </p>
           <form className="accountGateForm" aria-busy={accountAuthBusy} onSubmit={(event) => void handleAccountLogin(event)}>
             <label className="accountAccessField">
-              <span>이메일</span>
+              <span>아이디</span>
               <input
-                type="email"
-                autoComplete="email"
-                value={accountEmail}
-                onChange={(event) => setAccountEmail(event.target.value)}
-                placeholder="이메일을 입력하세요"
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={accountLoginId}
+                onChange={(event) => setAccountLoginId(event.target.value)}
+                placeholder="아이디를 입력하세요"
                 disabled={accountAuthBusy}
                 autoFocus
                 required
@@ -3160,7 +3162,7 @@ function App(): JSX.Element {
               />
             </label>
             {accountAuthError ? <p className="accountGateError" role="alert">{accountAuthError}</p> : null}
-            <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !accountEmail.trim() || !accountPassword}>
+            <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !accountLoginId.trim() || !accountPassword}>
               {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
               <span>{accountAuthBusy ? "확인 중" : "계속"}</span>
             </button>
