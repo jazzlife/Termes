@@ -35,6 +35,11 @@ output/
 !packages/hermes-compat/tsconfig.json
 !packages/hermes-compat/src/
 !packages/hermes-compat/src/**
+!packages/eventing/
+!packages/eventing/package.json
+!packages/eventing/tsconfig.json
+!packages/eventing/src/
+!packages/eventing/src/**
 
 .DS_Store
 mobile alias
