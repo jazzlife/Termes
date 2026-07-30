@@ -86,6 +86,11 @@ fn open_connector_permission_settings(kind: String) -> Result<(), String> {
     platform::open_permission_settings(&kind)
 }
 
+#[tauri::command]
+fn request_connector_permission(kind: String) -> Result<(), String> {
+    platform::request_permission(&kind)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -106,6 +111,7 @@ pub fn run() {
             reject_connector_command,
             emergency_stop_connector,
             refresh_connector_permissions,
+            request_connector_permission,
             open_connector_permission_settings,
         ])
         .run(tauri::generate_context!())

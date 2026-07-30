@@ -18,12 +18,15 @@ const MAX_PROCESSES: usize = 500;
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: core_foundation::dictionary::CFDictionaryRef)
+        -> bool;
 }
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 fn bounded_text(bytes: &[u8]) -> String {
@@ -160,20 +163,7 @@ pub fn permission_state() -> PermissionState {
 pub fn open_permission_settings(kind: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let url = match kind {
-            "accessibility" | "inputControl" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-            }
-            "screenCapture" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-            }
-            _ => return Err("Unknown permission kind".to_owned()),
-        };
-        Command::new("/usr/bin/open")
-            .arg(url)
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("Cannot open macOS System Settings: {error}"))
+        open_macos_permission_settings(kind)
     }
     #[cfg(target_os = "windows")]
     {
@@ -182,6 +172,80 @@ pub fn open_permission_settings(kind: &str) -> Result<(), String> {
             "Windows does not expose a separate permission page for these connector capabilities"
                 .to_owned(),
         )
+    }
+}
+
+pub fn request_permission(kind: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        request_macos_permission_with(
+            kind,
+            request_accessibility_permission,
+            request_screen_capture_permission,
+            open_macos_permission_settings,
+        )
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = kind;
+        Err("Windows handles these connector capabilities through OS and session policy".to_owned())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn request_accessibility_permission() {
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+
+    let options = CFDictionary::from_CFType_pairs(&[(
+        CFString::new("AXTrustedCheckOptionPrompt"),
+        CFBoolean::true_value(),
+    )]);
+    unsafe {
+        AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef());
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn request_screen_capture_permission() -> bool {
+    unsafe { CGRequestScreenCaptureAccess() }
+}
+
+#[cfg(target_os = "macos")]
+fn open_macos_permission_settings(kind: &str) -> Result<(), String> {
+    let url = match kind {
+        "accessibility" | "inputControl" => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        }
+        "screenCapture" => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        }
+        _ => return Err("Unknown permission kind".to_owned()),
+    };
+    Command::new("/usr/bin/open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Cannot open macOS System Settings: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn request_macos_permission_with(
+    kind: &str,
+    request_accessibility: impl FnOnce(),
+    request_screen_capture: impl FnOnce() -> bool,
+    open_settings: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    match kind {
+        "accessibility" | "inputControl" => {
+            request_accessibility();
+            Ok(())
+        }
+        "screenCapture" if request_screen_capture() => Ok(()),
+        "screenCapture" => open_settings(kind),
+        _ => Err("Unknown permission kind".to_owned()),
     }
 }
 
@@ -714,6 +778,8 @@ pub fn execute(action: &str, params: &Value) -> PlatformCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use std::cell::RefCell;
 
     #[test]
     fn action_allowlist_contains_only_typed_actions() {
@@ -737,5 +803,54 @@ mod tests {
         assert!(!is_read_only_action(&format!("{prefix}.debug.process")));
         assert!(!is_read_only_action(&format!("{prefix}.input.type")));
         assert!(!is_read_only_action(&format!("{prefix}.app.terminate")));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn accessibility_permission_request_does_not_hide_the_native_prompt() {
+        let calls = RefCell::new(Vec::new());
+
+        request_macos_permission_with(
+            "accessibility",
+            || {
+                calls.borrow_mut().push("request-accessibility");
+            },
+            || {
+                calls.borrow_mut().push("request-screen-capture");
+                false
+            },
+            |_| {
+                calls.borrow_mut().push("open-settings");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(calls.into_inner(), vec!["request-accessibility"]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn denied_screen_capture_request_opens_settings() {
+        let calls = RefCell::new(Vec::new());
+
+        request_macos_permission_with(
+            "screenCapture",
+            || calls.borrow_mut().push("request-accessibility"),
+            || {
+                calls.borrow_mut().push("request-screen-capture");
+                false
+            },
+            |_| {
+                calls.borrow_mut().push("open-settings");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            calls.into_inner(),
+            vec!["request-screen-capture", "open-settings"]
+        );
     }
 }

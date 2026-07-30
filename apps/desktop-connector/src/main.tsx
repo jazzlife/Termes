@@ -9,6 +9,7 @@ import type {
   PermissionState,
   PermissionValue,
 } from "./types";
+import { installPermissionFocusRefresh } from "./permission-refresh";
 import "./styles.css";
 
 const phaseLabels: Record<ConnectionPhase, string> = {
@@ -134,6 +135,12 @@ function App() {
       unlisten?.();
     };
   }, []);
+
+  React.useEffect(() => installPermissionFocusRefresh(window, () => {
+    void invoke<ConnectorSnapshot>("refresh_connector_permissions")
+      .then(setSnapshot)
+      .catch((refreshError) => setError(errorMessage(refreshError)));
+  }), []);
 
   const run = React.useCallback(async <T,>(name: string, task: () => Promise<T>) => {
     setBusyAction(name);
@@ -343,12 +350,25 @@ function App() {
                     <div className="permission-control">
                       <span className={`status-label ${permissionTone(value)}`}>{permissionText(value)}</span>
                       {value === "denied" || value === "not_determined" ? (
-                        <button
-                          className="text-button"
-                          onClick={() => void invoke("open_connector_permission_settings", { kind: permission.key }).catch((openError) => setError(errorMessage(openError)))}
-                        >
-                          설정 열기
-                        </button>
+                        <div className="permission-actions">
+                          <button
+                            className="text-button"
+                            onClick={() => {
+                              void invoke("request_connector_permission", { kind: permission.key })
+                                .then(() => invoke<ConnectorSnapshot>("refresh_connector_permissions"))
+                                .then(setSnapshot)
+                                .catch((requestError) => setError(errorMessage(requestError)));
+                            }}
+                          >
+                            권한 요청
+                          </button>
+                          <button
+                            className="text-button secondary"
+                            onClick={() => void invoke("open_connector_permission_settings", { kind: permission.key }).catch((openError) => setError(errorMessage(openError)))}
+                          >
+                            설정
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   </div>

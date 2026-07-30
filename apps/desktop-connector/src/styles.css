@@ -113,6 +113,9 @@ button:disabled { cursor: wait; opacity: 0.58; }
 .permission-copy strong { color: #bfc8d1; font-size: 11px; }
 .permission-copy span { color: #697682; font-size: 9.5px; line-height: 1.35; }
 .permission-control { display: flex; align-items: flex-end; flex-direction: column; gap: 4px; }
+.permission-actions { display: flex; align-items: center; gap: 10px; }
+.permission-actions .text-button.secondary { color: #778592; }
+.permission-actions .text-button.secondary:hover { color: #a6b1bb; }
 .status-label { color: #788592; font-size: 9px; font-weight: 750; }
 .status-label.positive { color: #59d99b; }
 .status-label.negative { color: #ff858d; }

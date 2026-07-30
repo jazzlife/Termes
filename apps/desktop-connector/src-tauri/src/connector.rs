@@ -3,7 +3,7 @@ use crate::model::{
     ConnectorSnapshot, PairInput, PairResponse, PendingApproval, PROTOCOL_VERSION,
 };
 use crate::{platform, storage};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -412,7 +412,7 @@ impl ConnectorState {
                 if heartbeat_sender
                     .send(json!({
                         "type": "heartbeat",
-                        "sentAt": Utc::now().to_rfc3339(),
+                        "sentAt": protocol_timestamp(Utc::now()),
                         "capabilities": platform::capabilities(),
                         "permissions": platform::permission_state(),
                     }))
@@ -472,7 +472,7 @@ impl ConnectorState {
                         Message::Ping(payload) => {
                             let _ = outbound.send(json!({
                                 "type": "heartbeat",
-                                "sentAt": Utc::now().to_rfc3339(),
+                                "sentAt": protocol_timestamp(Utc::now()),
                                 "pingBytes": payload.len(),
                             }));
                         }
@@ -624,8 +624,8 @@ impl ConnectorState {
             stdout: result.stdout,
             stderr: result.stderr,
             exit_code: result.exit_code,
-            started_at: started_at.to_rfc3339(),
-            completed_at: completed_at.to_rfc3339(),
+            started_at: protocol_timestamp(started_at),
+            completed_at: protocol_timestamp(completed_at),
             artifact: result.artifact,
         };
         if let Ok(value) = serde_json::to_value(message) {
@@ -690,6 +690,10 @@ fn api_error(body: &str, fallback: String) -> String {
         .unwrap_or(fallback)
 }
 
+fn protocol_timestamp(value: DateTime<Utc>) -> String {
+    value.to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
 fn send_ack(
     outbound: &mpsc::UnboundedSender<Value>,
     envelope: &CommandEnvelope,
@@ -702,7 +706,7 @@ fn send_ack(
         "sequence": envelope.sequence,
         "accepted": accepted,
         "reason": reason,
-        "acknowledgedAt": Utc::now().to_rfc3339(),
+        "acknowledgedAt": protocol_timestamp(Utc::now()),
     }));
 }
 
@@ -755,6 +759,13 @@ mod tests {
             value.get("characterCount").and_then(Value::as_u64),
             Some(10)
         );
+    }
+
+    #[test]
+    fn protocol_timestamps_use_the_rfc3339_utc_designator() {
+        let timestamp = protocol_timestamp(Utc::now());
+        assert!(timestamp.ends_with('Z'));
+        assert!(!timestamp.contains("+00:00"));
     }
 
     #[test]
