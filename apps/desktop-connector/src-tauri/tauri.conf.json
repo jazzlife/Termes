@@ -29,6 +29,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Secure Windows and macOS workspace connector for Termes",
     "longDescription": "Pairs a Windows or macOS computer with a Termes workspace for approved observation, control, analysis, and diagnostics.",
