@@ -21,6 +21,12 @@ coverage/
 output/
 .playwright-cli/
 
+# Keep durable release checkpoint evidence even when a workstation-wide
+# ignore rule excludes directories whose names start with "release".
+!docs/
+!docs/release-checkpoints/
+!docs/release-checkpoints/**
+
 # The workstation's global Visual Studio ignore pattern matches packages/*.
 # Keep this workspace package versioned; Docker builds copy it directly.
 !packages/
