@@ -112,6 +112,7 @@ services:
       HERMES_MANAGER_URL: http://hermes-manager:8080
       HERMES_MANAGER_SERVICE_TOKEN: ${HERMES_MANAGER_SERVICE_TOKEN:?HERMES_MANAGER_SERVICE_TOKEN is required}
       DEVICE_GATEWAY_URL: http://device-gateway:8080
+      DESKTOP_ARTIFACT_ROOT: /data/docker_data/termes/desktop-artifacts
       TERMES_SINGLE_ACCOUNT_ID: ${TERMES_SINGLE_ACCOUNT_ID:?TERMES_SINGLE_ACCOUNT_ID is required}
       TERMES_SINGLE_WORKSPACE_ID: ${TERMES_SINGLE_WORKSPACE_ID:?TERMES_SINGLE_WORKSPACE_ID is required}
       TERMES_SINGLE_RUNTIME_CELL_ID: ${TERMES_SINGLE_RUNTIME_CELL_ID:?TERMES_SINGLE_RUNTIME_CELL_ID is required}
@@ -121,10 +122,10 @@ services:
       HERMES_GID: ${HERMES_GID:-10000}
       API_REQUEST_TIMEOUT_MS: ${API_REQUEST_TIMEOUT_MS:-300000}
       MIGRATIONS_DIR: /app/infra/db/migrations
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://100.64.0.9:4180}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required and must use HTTPS in production}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_BROWSER_OAUTH_ENABLED: ${GITHUB_BROWSER_OAUTH_ENABLED:-true}
-      GITHUB_OAUTH_CALLBACK_URL: ${GITHUB_OAUTH_CALLBACK_URL:-http://100.64.0.9:4180/api/github/oauth/callback}
+      GITHUB_OAUTH_CALLBACK_URL: ${GITHUB_OAUTH_CALLBACK_URL:?GITHUB_OAUTH_CALLBACK_URL is required}
       GITHUB_OAUTH_SCOPE: ${GITHUB_OAUTH_SCOPE:-repo read:org}
       GITHUB_CLIENT_SECRET_ENC: ${GITHUB_CLIENT_SECRET_ENC:-}
       GITHUB_SECRET_KEY_FILE: ${GITHUB_SECRET_KEY_FILE:-/data/docker_data/termes/secrets/github-oauth.key}
@@ -136,6 +137,7 @@ services:
     volumes:
       - ${TERMES_WORKSPACES_HOST_ROOT:?TERMES_WORKSPACES_HOST_ROOT is required}:/data/docker_data/termes/workspaces/users
       - /data/docker_data/termes/secrets:/data/docker_data/termes/secrets
+      - /data/docker_data/termes/desktop-artifacts:/data/docker_data/termes/desktop-artifacts
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -462,6 +464,7 @@ services:
     command: ["sh", "-c", "mkdir -p /data/docker_data/termes/backups && sleep infinity"]
     volumes:
       - /data/docker_data/termes/backups:/data/docker_data/termes/backups
+      - /data/docker_data/termes/desktop-artifacts:/data/docker_data/termes/desktop-artifacts:ro
     networks:
       - termes_internal
 

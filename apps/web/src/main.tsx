@@ -70,6 +70,8 @@ import type {
 } from "@termes/shared";
 import {
   connectEvents,
+  approveTermesMember,
+  changeTermesPassword,
   cloneGitHubProject,
   createDevice,
   createHermesChatCompletion,
@@ -102,6 +104,7 @@ import {
   fetchHermesRun,
   fetchHermesUpstreamDiagnostics,
   fetchOpenAiAccount,
+  fetchPendingTermesMembers,
   fetchTermesSession,
   fetchProjects,
   fetchTaskPlan,
@@ -114,6 +117,7 @@ import {
   pollCodexOAuthLogin,
   loginTermesAccount,
   logoutTermesAccount,
+  registerTermesMember,
   resolveHermesApproval,
   resumeHermesJob,
   runDeviceCommand,
@@ -129,6 +133,7 @@ import {
   updateDevice,
   type HermesStreamEvent,
   type CodexOAuthDeviceSession,
+  type PendingTermesMember,
   type TermesAccountPrincipal,
   streamHermesResponse,
   streamHermesRunEvents,
@@ -140,6 +145,7 @@ import {
 } from "./api";
 import { HermesRealtimeClient } from "./hermes-realtime-client";
 import { ApprovalGate } from "./components/ApprovalGate";
+import { DesktopConnectorSection } from "./features/desktop-connectors/DesktopConnectorSection";
 import { resolveExistingSelectionId } from "./selection-state";
 import { readExperienceEnvironment, resolveExperience, type ExperienceKind } from "./app/experience";
 import { readStoredTheme, resolveTheme, THEME_STORAGE_KEY, type ThemeMode } from "./app/theme";
@@ -200,13 +206,14 @@ function MarkdownMessage({ content }: { content: string }) {
   );
 }
 
-const devicePlatforms: DevicePlatform[] = ["local_mock", "windows", "linux", "android", "tizen"];
+const devicePlatforms: DevicePlatform[] = ["local_mock", "windows", "macos", "linux", "android", "tizen"];
 const deviceStatusFilters: Array<DeviceStatus | "all"> = ["all", "online", "unknown", "busy", "offline", "error"];
 
 function devicePlatformLabel(platform: DevicePlatform): string {
   const labels: Record<DevicePlatform, string> = {
     local_mock: "Local",
     windows: "Windows",
+    macos: "macOS",
     linux: "Linux",
     android: "Android",
     tizen: "Tizen",
@@ -217,7 +224,8 @@ function devicePlatformLabel(platform: DevicePlatform): string {
 function transportOptions(platform: DevicePlatform): DeviceTransport[] {
   const options: Record<DevicePlatform, DeviceTransport[]> = {
     local_mock: ["local_mock"],
-    windows: ["winrm", "ssh"],
+    windows: ["winrm", "ssh", "connector"],
+    macos: ["connector"],
     linux: ["ssh"],
     android: ["adb"],
     tizen: ["sdb"],
@@ -229,6 +237,7 @@ function defaultActionForPlatform(platform: DevicePlatform): string {
   const actions: Record<DevicePlatform, string> = {
     local_mock: "local_mock.echo",
     windows: "windows.system.info",
+    macos: "macos.system.info",
     linux: "linux.system.info",
     android: "android.system.info",
     tizen: "tizen.system.info",
@@ -239,7 +248,8 @@ function defaultActionForPlatform(platform: DevicePlatform): string {
 function quickActionsForPlatform(platform: DevicePlatform): string[] {
   const actions: Record<DevicePlatform, string[]> = {
     local_mock: ["local_mock.echo", "local_mock.health", "local_mock.fail", "local_mock.sleep"],
-    windows: ["windows.system.info", "windows.service.status", "windows.eventlog.query", "windows.powershell"],
+    windows: ["windows.system.info", "windows.process.list", "windows.screen.capture", "windows.accessibility.snapshot", "windows.logs.query", "windows.debug.process"],
+    macos: ["macos.system.info", "macos.process.list", "macos.screen.capture", "macos.accessibility.snapshot", "macos.logs.query", "macos.debug.process"],
     linux: ["linux.system.info", "linux.service.status", "linux.journal.query", "linux.shell"],
     android: ["android.system.info", "android.logcat", "android.shell"],
     tizen: ["tizen.system.info", "tizen.dlog", "tizen.shell"],
@@ -623,11 +633,29 @@ function firstId(value: unknown, listKey: "sessions" | "jobs", idKeys: string[])
 
 function App(): JSX.Element {
   const [accountPrincipal, setAccountPrincipal] = useState<TermesAccountPrincipal | null>(null);
+  const [accountAuthMode, setAccountAuthMode] = useState<"login" | "register">("login");
   const [accountLoginId, setAccountLoginId] = useState("");
   const [accountPassword, setAccountPassword] = useState("");
+  const [registrationName, setRegistrationName] = useState("");
+  const [registrationLoginId, setRegistrationLoginId] = useState("");
+  const [registrationEmail, setRegistrationEmail] = useState("");
+  const [registrationPassword, setRegistrationPassword] = useState("");
+  const [registrationPasswordConfirm, setRegistrationPasswordConfirm] = useState("");
+  const [memberDialog, setMemberDialog] = useState<"password" | "approval" | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [pendingMembers, setPendingMembers] = useState<PendingTermesMember[]>([]);
+  const [memberActionBusy, setMemberActionBusy] = useState(false);
+  const [approvingMemberId, setApprovingMemberId] = useState<string | null>(null);
+  const [memberApprovalLoadFailed, setMemberApprovalLoadFailed] = useState(false);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
   const [accountAuthLoading, setAccountAuthLoading] = useState(true);
   const [accountAuthBusy, setAccountAuthBusy] = useState(false);
   const [accountAuthError, setAccountAuthError] = useState<string | null>(null);
+  const [accountAuthNotice, setAccountAuthNotice] = useState<string | null>(null);
+  const memberDialogRef = useRef<HTMLElement | null>(null);
+  const memberDialogOpenerRef = useRef<HTMLElement | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [events, setEvents] = useState<PlatformEvent[]>([]);
@@ -720,11 +748,53 @@ function App(): JSX.Element {
   const selectedProjectIdRef = useRef("");
   const selectedTaskIdRef = useRef("");
   const listRefreshGenerationRef = useRef(0);
+  const accountDataGenerationRef = useRef(0);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const projectDrawerRef = useRef<HTMLElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const latestChatMessageRef = useRef<HTMLDivElement | null>(null);
   const hermesRpcClientRef = useRef<HermesRealtimeClient | null>(null);
+
+  useEffect(() => {
+    if (!memberDialog) return undefined;
+    const dialog = memberDialogRef.current;
+    const opener = memberDialogOpenerRef.current;
+    const focusableSelector = "button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+    const frame = window.requestAnimationFrame(() => {
+      const initialFocus = dialog?.querySelector<HTMLElement>("[autofocus]")
+        ?? dialog?.querySelector<HTMLElement>(focusableSelector);
+      initialFocus?.focus();
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMemberDialog(null);
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(focusableSelector)];
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+      opener?.focus();
+    };
+  }, [memberDialog]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -939,6 +1009,7 @@ function App(): JSX.Element {
   }
 
   async function refresh(projectId?: string, taskId?: string): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const generation = ++listRefreshGenerationRef.current;
     const nextProjects = await fetchProjects();
     const requestedProjectId = projectId ?? selectedProjectIdRef.current;
@@ -947,7 +1018,7 @@ function App(): JSX.Element {
     const requestedTaskId = taskId ?? selectedTaskIdRef.current;
     const nextTaskId = resolveExistingSelectionId(nextTasks, requestedTaskId);
 
-    if (generation !== listRefreshGenerationRef.current) return;
+    if (generation !== listRefreshGenerationRef.current || accountGeneration !== accountDataGenerationRef.current) return;
 
     setProjects(nextProjects);
     selectProjectState(nextProjectId);
@@ -956,6 +1027,7 @@ function App(): JSX.Element {
   }
 
   async function refreshTaskList(projectId?: string): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const generation = ++listRefreshGenerationRef.current;
     const nextProjects = await fetchProjects();
     const requestedProjectId = projectId ?? selectedProjectIdRef.current;
@@ -963,7 +1035,7 @@ function App(): JSX.Element {
     const nextTasks = nextProjectId ? await fetchTasks(nextProjectId) : [];
     const nextTaskId = resolveExistingSelectionId(nextTasks, selectedTaskIdRef.current);
 
-    if (generation !== listRefreshGenerationRef.current) return;
+    if (generation !== listRefreshGenerationRef.current || accountGeneration !== accountDataGenerationRef.current) return;
 
     setProjects(nextProjects);
     selectProjectState(nextProjectId);
@@ -972,10 +1044,12 @@ function App(): JSX.Element {
   }
 
   async function refreshRuntime(taskId = selectedTask?.id): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const [capabilities, runtime] = await Promise.all([
       fetchHermesCapabilities(),
       taskId ? fetchTaskRuntime(taskId) : Promise.resolve(null),
     ]);
+    if (accountGeneration !== accountDataGenerationRef.current) return;
     setHermesCapabilities(capabilities);
     setTaskRuntime(runtime);
     setTaskPlan(runtime?.taskPlan || null);
@@ -1004,6 +1078,7 @@ function App(): JSX.Element {
       const run = runId.startsWith("jsonrpc-")
         ? syntheticRun()
         : await fetchHermesRun(runId).catch(syntheticRun);
+      if (accountGeneration !== accountDataGenerationRef.current) return;
       setHermesRun(run);
     } else {
       setHermesRun(null);
@@ -1011,10 +1086,12 @@ function App(): JSX.Element {
   }
 
   async function refreshDevices(projectId = selectedProject?.id): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const [nextDevices, nextCapabilities] = await Promise.all([
       fetchDevices(projectId),
       fetchCapabilities(),
     ]);
+    if (accountGeneration !== accountDataGenerationRef.current) return;
     setDevices(nextDevices);
     setCapabilityPackages(nextCapabilities);
     setSelectedDeviceId((current) => {
@@ -1036,6 +1113,7 @@ function App(): JSX.Element {
   }
 
   async function refreshPlan(taskId = selectedTask?.id): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     if (!taskId) {
       setTaskPlan(null);
       setVerificationResults([]);
@@ -1045,20 +1123,25 @@ function App(): JSX.Element {
       fetchTaskPlan(taskId),
       fetchVerificationResults(taskId),
     ]);
+    if (accountGeneration !== accountDataGenerationRef.current) return;
     setTaskPlan(nextPlan);
     setVerificationResults(nextVerificationResults);
   }
 
   async function loadProjectFolders(): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const folders = await fetchProjectFolders();
+    if (accountGeneration !== accountDataGenerationRef.current) return;
     setProjectFolders(folders);
     setFolderPath((current) => current && folders.some((folder) => folder.path === current) ? current : folders[0]?.path || "");
   }
 
   async function loadGitHubProjectState(): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     setGithubBusy(true);
     try {
       const status = await fetchGitHubStatus();
+      if (accountGeneration !== accountDataGenerationRef.current) return;
       setGithubStatus(status);
       if (!status.connected) {
         setGithubRepositoryGroups([]);
@@ -1073,12 +1156,15 @@ function App(): JSX.Element {
       }
 
       const groups = await fetchGitHubRepositories();
+      if (accountGeneration !== accountDataGenerationRef.current) return;
       setGithubRepositoryGroups(groups);
       setGithubMessage(`${status.login || "GitHub"} 계정의 저장소를 불러왔습니다.`);
     } catch (cause) {
-      setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+      if (accountGeneration === accountDataGenerationRef.current) {
+        setGithubMessage(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      setGithubBusy(false);
+      if (accountGeneration === accountDataGenerationRef.current) setGithubBusy(false);
     }
   }
 
@@ -1435,14 +1521,18 @@ function App(): JSX.Element {
   }
 
   async function refreshHermesCatalog(): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const catalog = await fetchHermesCatalog(accountPrincipal?.canManageSharedOAuth === true);
+    if (accountGeneration !== accountDataGenerationRef.current) return;
     setHermesCatalog(catalog);
     setHermesCapabilities(catalog.capabilities);
     setHermesUpstreamDiagnostics(catalog.capabilities.manager.upstreamDiagnostics || null);
   }
 
   async function refreshOpenAiAccount(): Promise<void> {
+    const accountGeneration = accountDataGenerationRef.current;
     const account = await fetchOpenAiAccount();
+    if (accountGeneration !== accountDataGenerationRef.current) return;
     const connected = Boolean(account.account) && account.requiresOpenaiAuth !== true;
     setOpenAiConnected(connected);
     setOpenAiAuthMessage(connected
@@ -1478,20 +1568,141 @@ function App(): JSX.Element {
     }
   }
 
+  async function handleAccountRegistration(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setAccountAuthError(null);
+    setAccountAuthNotice(null);
+    if (registrationPassword !== registrationPasswordConfirm) {
+      setAccountAuthError("비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+    setAccountAuthBusy(true);
+    try {
+      await registerTermesMember({
+        displayName: registrationName,
+        loginId: registrationLoginId,
+        email: registrationEmail,
+        password: registrationPassword,
+      });
+      setRegistrationPassword("");
+      setRegistrationPasswordConfirm("");
+      setAccountLoginId(registrationLoginId.trim().toLowerCase());
+      setAccountAuthMode("login");
+      setAccountAuthNotice("승인 요청을 보냈습니다. 관리자가 승인한 뒤 로그인할 수 있습니다.");
+    } catch (cause) {
+      setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setAccountAuthBusy(false);
+    }
+  }
+
+  async function openMemberApproval(): Promise<void> {
+    memberDialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setMemberDialog("approval");
+    setMemberActionBusy(true);
+    setMemberActionError(null);
+    setMemberApprovalLoadFailed(false);
+    setPendingMembers([]);
+    try {
+      setPendingMembers(await fetchPendingTermesMembers());
+    } catch (cause) {
+      setMemberApprovalLoadFailed(true);
+      setMemberActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setMemberActionBusy(false);
+    }
+  }
+
+  function openPasswordDialog(): void {
+    memberDialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setMemberActionError(null);
+    setMemberDialog("password");
+  }
+
+  async function handleMemberApproval(memberId: string): Promise<void> {
+    setApprovingMemberId(memberId);
+    setMemberActionError(null);
+    try {
+      await approveTermesMember(memberId);
+      setPendingMembers((members) => members.filter((member) => member.memberId !== memberId));
+    } catch (cause) {
+      setMemberActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setApprovingMemberId(null);
+    }
+  }
+
+  function clearAuthenticatedShell(): void {
+    accountDataGenerationRef.current += 1;
+    hermesRpcClientRef.current?.close();
+    hermesRpcClientRef.current = null;
+    setAccountPrincipal(null);
+    setProjects([]);
+    setTasks([]);
+    setEvents([]);
+    setTaskRuntime(null);
+    setHermesCapabilities(null);
+    setCapabilityPackages([]);
+    setDevices([]);
+    setTaskPlan(null);
+    setVerificationResults([]);
+    setSelectedDeviceId("");
+    setLastDeviceCommand(null);
+    setLastDeviceVerification(null);
+    setHermesCatalog(null);
+    setHermesRun(null);
+    setHermesUpstreamDiagnostics(null);
+    setPendingMembers([]);
+    setMemberDialog(null);
+    setProjectPanelOpen(false);
+    setProjectFolders([]);
+    setFolderPath("");
+    setGithubStatus(null);
+    setGithubRepositoryGroups([]);
+    setGithubSearch("");
+    setSelectedGithubRepository("");
+    setGithubDeviceLogin(null);
+    setHermesStreamEvents([]);
+    setHermesAuditResults([]);
+    setHermesRpcResult("아직 실행하지 않았습니다.");
+    setOpenAiConnected(false);
+    setCodexOAuthSession(null);
+    listRefreshGenerationRef.current += 1;
+    selectProjectState("");
+    selectTaskState("");
+    setMobileView("list");
+  }
+
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setMemberActionError(null);
+    if (newPassword !== newPasswordConfirm) {
+      setMemberActionError("새 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+    setMemberActionBusy(true);
+    try {
+      await changeTermesPassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      setMemberDialog(null);
+      clearAuthenticatedShell();
+      setAccountAuthMode("login");
+      setAccountAuthNotice("비밀번호가 변경되었습니다. 새 비밀번호로 다시 로그인해 주세요.");
+    } catch (cause) {
+      setMemberActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setMemberActionBusy(false);
+    }
+  }
+
   async function handleAccountLogout(): Promise<void> {
     setAccountAuthBusy(true);
     setAccountAuthError(null);
     try {
       await logoutTermesAccount();
-      setAccountPrincipal(null);
-      setProjects([]);
-      setTasks([]);
-      setEvents([]);
-      setTaskRuntime(null);
-      listRefreshGenerationRef.current += 1;
-      selectProjectState("");
-      selectTaskState("");
-      setMobileView("list");
+      clearAuthenticatedShell();
     } catch (cause) {
       setAccountAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1536,7 +1747,12 @@ function App(): JSX.Element {
   }, [selectedDevice?.id]);
 
   useEffect(() => {
+    accountDataGenerationRef.current += 1;
+  }, [accountPrincipal?.memberId]);
+
+  useEffect(() => {
     if (!accountPrincipal) return;
+    const accountGeneration = accountDataGenerationRef.current;
     let refreshTimer: number | null = null;
     let refreshListPending = false;
     let refreshRuntimePending = false;
@@ -1553,13 +1769,17 @@ function App(): JSX.Element {
         if (refreshListPending) {
           refreshListPending = false;
           refreshTaskList(projectId).catch((cause: unknown) => {
-            setError(cause instanceof Error ? cause.message : String(cause));
+            if (accountGeneration === accountDataGenerationRef.current) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            }
           });
         }
         if (refreshRuntimePending && taskId) {
           refreshRuntimePending = false;
           refreshRuntime(taskId).catch((cause: unknown) => {
-            setError(cause instanceof Error ? cause.message : String(cause));
+            if (accountGeneration === accountDataGenerationRef.current) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            }
           });
         } else {
           refreshRuntimePending = false;
@@ -1567,7 +1787,9 @@ function App(): JSX.Element {
         if (refreshDevicesPending) {
           refreshDevicesPending = false;
           refreshDevices(projectId).catch((cause: unknown) => {
-            setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+            if (accountGeneration === accountDataGenerationRef.current) {
+              setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+            }
           });
         }
       }, 50);
@@ -1576,31 +1798,36 @@ function App(): JSX.Element {
 
     refresh()
       .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        if (accountGeneration === accountDataGenerationRef.current) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
       })
       .finally(() => {
-        setLoading(false);
+        if (accountGeneration === accountDataGenerationRef.current) setLoading(false);
       });
 
     refreshRuntime().catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (accountGeneration === accountDataGenerationRef.current) setError(cause instanceof Error ? cause.message : String(cause));
     });
     refreshHermesCatalog().catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (accountGeneration === accountDataGenerationRef.current) setError(cause instanceof Error ? cause.message : String(cause));
     });
     refreshOpenAiAccount().catch((cause: unknown) => {
-      setOpenAiAuthMessage(cause instanceof Error ? cause.message : String(cause));
+      if (accountGeneration === accountDataGenerationRef.current) setOpenAiAuthMessage(cause instanceof Error ? cause.message : String(cause));
     });
     fetchHermesUpstreamDiagnostics()
-      .then(setHermesUpstreamDiagnostics)
+      .then((diagnostics) => {
+        if (accountGeneration === accountDataGenerationRef.current) setHermesUpstreamDiagnostics(diagnostics);
+      })
       .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        if (accountGeneration === accountDataGenerationRef.current) setError(cause instanceof Error ? cause.message : String(cause));
       });
     refreshDevices().catch((cause: unknown) => {
-      setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
+      if (accountGeneration === accountDataGenerationRef.current) setDeviceMessage(cause instanceof Error ? cause.message : String(cause));
     });
 
     const source = connectEvents((event) => {
+      if (accountGeneration !== accountDataGenerationRef.current) return;
       setEvents((current) => [event, ...current.filter((entry) => entry.id !== event.id)].slice(0, 80));
       if (
         event.type === "project.created" ||
@@ -3107,6 +3334,97 @@ function App(): JSX.Element {
     );
   }
 
+  function renderMemberDialog(): JSX.Element | null {
+    if (!memberDialog) return null;
+    const closeDialog = () => {
+      if (memberActionBusy) return;
+      setMemberDialog(null);
+      setMemberActionError(null);
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirm("");
+    };
+    return (
+      <div className="memberDialogBackdrop">
+        <section
+          ref={memberDialogRef}
+          className="memberDialog"
+          role="dialog"
+          tabIndex={-1}
+          aria-modal="true"
+          aria-labelledby="member-dialog-title"
+          aria-busy={memberActionBusy || approvingMemberId !== null}
+        >
+          <header className="memberDialogHeader">
+            <img className="memberDialogAppIcon" src="/termes-icon-launcher-v3-512.png" alt="" />
+            <div>
+              <p className="accountGateEyebrow">TERMES MEMBERSHIP</p>
+              <h2 id="member-dialog-title">{memberDialog === "password" ? "비밀번호 변경" : "회원 승인"}</h2>
+              <p>{memberDialog === "password"
+                ? "변경 후 모든 기기에서 다시 로그인해야 합니다."
+                : "가입 요청을 검토하고 현재 Account 사용을 승인합니다."}</p>
+            </div>
+            <button className="memberDialogClose" type="button" aria-label="닫기" disabled={memberActionBusy} onClick={closeDialog}>
+              <X size={20} />
+            </button>
+          </header>
+
+          {memberDialog === "password" ? (
+            <form className="memberDialogForm" onSubmit={(event) => void handlePasswordChange(event)}>
+              <label className="accountAccessField">
+                <span>현재 비밀번호</span>
+                <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} disabled={memberActionBusy} required autoFocus />
+              </label>
+              <label className="accountAccessField">
+                <span>새 비밀번호</span>
+                <input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={memberActionBusy} required />
+                <small>12자 이상이며 현재 비밀번호와 달라야 합니다.</small>
+              </label>
+              <label className="accountAccessField">
+                <span>새 비밀번호 확인</span>
+                <input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={newPasswordConfirm} onChange={(event) => setNewPasswordConfirm(event.target.value)} disabled={memberActionBusy} aria-invalid={Boolean(newPasswordConfirm && newPassword !== newPasswordConfirm)} aria-describedby={memberActionError ? "member-password-error" : undefined} required />
+              </label>
+              <p className="memberDialogNotice"><ShieldCheck size={19} />현재 세션을 포함한 모든 로그인 세션이 종료됩니다.</p>
+              {memberActionError ? <p id="member-password-error" className="accountGateError" role="alert">{memberActionError}</p> : null}
+              <button className="accountGateSubmit" type="submit" disabled={memberActionBusy}>
+                {memberActionBusy ? <Loader2 className="spin" size={18} /> : <ShieldCheck size={18} />}
+                <span>{memberActionBusy ? "변경 중" : "비밀번호 변경"}</span>
+              </button>
+            </form>
+          ) : (
+            <div className="memberApprovalBody">
+              {!memberApprovalLoadFailed ? <p className="memberApprovalSummary">승인 대기 {pendingMembers.length}명</p> : null}
+              {memberApprovalLoadFailed ? (
+                <div className="memberApprovalEmpty memberApprovalFailure"><CircleAlert size={22} />승인 요청을 불러오지 못했습니다.</div>
+              ) : memberActionBusy && pendingMembers.length === 0 ? (
+                <div className="memberApprovalEmpty"><Loader2 className="spin" size={20} />승인 요청을 불러오고 있습니다.</div>
+              ) : pendingMembers.length === 0 ? (
+                <div className="memberApprovalEmpty"><CheckCircle2 size={22} />대기 중인 가입 요청이 없습니다.</div>
+              ) : (
+                <div className="memberApprovalList">
+                  {pendingMembers.map((member) => (
+                    <article className="memberApprovalRow" key={member.memberId}>
+                      <UserCircle2 size={30} aria-hidden="true" />
+                      <div>
+                        <strong>{member.displayName}</strong>
+                        <span>{member.loginId} · {member.email}</span>
+                      </div>
+                      <button type="button" aria-label={`${member.displayName} 회원 승인`} disabled={approvingMemberId !== null} onClick={() => void handleMemberApproval(member.memberId)}>
+                        {approvingMemberId === member.memberId ? <Loader2 className="spin" size={16} /> : null}승인
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+              {memberActionError ? <p className="accountGateError" role="alert">{memberActionError}</p> : null}
+              <p className="memberDialogBoundary">승인은 회원을 현재 관리자의 Account에 연결합니다. 새 Runtime Cell은 생성하지 않습니다.</p>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   if (accountAuthLoading) {
     return (
       <main className="accountGate" aria-busy="true">
@@ -3122,51 +3440,64 @@ function App(): JSX.Element {
   if (!accountPrincipal) {
     return (
       <main className="accountGate">
+        <aside className="accountGateBrand" aria-hidden="true">
+          <img src="/termes-icon-launcher-v3-512.png" alt="" />
+          <h2>함께 일할 준비를<br />안전하게 마치세요</h2>
+          <p>회원가입 후 관리자의 승인을 받으면 기존 Account Workspace에서 작업할 수 있습니다.</p>
+        </aside>
         <section className="accountGateCard" aria-labelledby="account-gate-title">
           <div className="accountGateIntro">
-            <span className="accountGateMark"><Sparkles size={22} /></span>
+            <img className="accountGateAppIcon" src="/termes-icon-launcher-v3-512.png" alt="" />
             <div>
-              <p className="accountGateEyebrow">TERMES</p>
-              <h1 id="account-gate-title">회원 로그인</h1>
+              <p className="accountGateEyebrow">TERMES MEMBERSHIP</p>
+              <h1 id="account-gate-title">{accountAuthMode === "login" ? "회원 로그인" : "회원가입"}</h1>
             </div>
           </div>
           <p className="accountGateDescription">
-            로그인한 회원의 Workspace에서 작업을 이어갑니다.
+            {accountAuthMode === "login"
+              ? "로그인한 회원의 Workspace에서 작업을 이어갑니다."
+              : "가입 정보를 보내면 관리자 승인 후 로그인할 수 있습니다."}
           </p>
-          <form className="accountGateForm" aria-busy={accountAuthBusy} onSubmit={(event) => void handleAccountLogin(event)}>
-            <label className="accountAccessField">
-              <span>아이디</span>
-              <input
-                type="text"
-                autoComplete="username"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={accountLoginId}
-                onChange={(event) => setAccountLoginId(event.target.value)}
-                placeholder="아이디를 입력하세요"
-                disabled={accountAuthBusy}
-                autoFocus
-                required
-              />
-            </label>
-            <label className="accountAccessField">
-              <span>비밀번호</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={accountPassword}
-                onChange={(event) => setAccountPassword(event.target.value)}
-                placeholder="비밀번호를 입력하세요"
-                disabled={accountAuthBusy}
-                required
-              />
-            </label>
-            {accountAuthError ? <p className="accountGateError" role="alert">{accountAuthError}</p> : null}
-            <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !accountLoginId.trim() || !accountPassword}>
-              {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
-              <span>{accountAuthBusy ? "확인 중" : "계속"}</span>
+          <div className="accountAuthTabs" role="tablist" aria-label="인증 방식">
+            <button type="button" role="tab" aria-selected={accountAuthMode === "login"} className={accountAuthMode === "login" ? "active" : ""} disabled={accountAuthBusy} onClick={() => { setAccountAuthMode("login"); setAccountAuthError(null); }}>
+              로그인
             </button>
-          </form>
+            <button type="button" role="tab" aria-selected={accountAuthMode === "register"} className={accountAuthMode === "register" ? "active" : ""} disabled={accountAuthBusy} onClick={() => { setAccountAuthMode("register"); setAccountAuthError(null); setAccountAuthNotice(null); }}>
+              회원가입
+            </button>
+          </div>
+          {accountAuthMode === "login" ? (
+            <form className="accountGateForm" aria-busy={accountAuthBusy} onSubmit={(event) => void handleAccountLogin(event)}>
+              <label className="accountAccessField">
+                <span>아이디</span>
+                <input type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} value={accountLoginId} onChange={(event) => setAccountLoginId(event.target.value)} placeholder="아이디를 입력하세요" disabled={accountAuthBusy} autoFocus required />
+              </label>
+              <label className="accountAccessField">
+                <span>비밀번호</span>
+                <input type="password" autoComplete="current-password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="비밀번호를 입력하세요" disabled={accountAuthBusy} required />
+              </label>
+              {accountAuthNotice ? <p className="accountGateNotice" role="status">{accountAuthNotice}</p> : null}
+              {accountAuthError ? <p className="accountGateError" role="alert">{accountAuthError}</p> : null}
+              <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy || !accountLoginId.trim() || !accountPassword}>
+                {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
+                <span>{accountAuthBusy ? "확인 중" : "계속"}</span>
+              </button>
+            </form>
+          ) : (
+            <form className="accountGateForm registration" aria-busy={accountAuthBusy} onSubmit={(event) => void handleAccountRegistration(event)}>
+              <label className="accountAccessField"><span>이름</span><input type="text" autoComplete="name" maxLength={80} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="표시할 이름" disabled={accountAuthBusy} autoFocus required /></label>
+              <label className="accountAccessField"><span>아이디</span><input type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={32} pattern="[A-Za-z0-9][A-Za-z0-9._-]*" value={registrationLoginId} onChange={(event) => setRegistrationLoginId(event.target.value)} placeholder="영문, 숫자, 점, 밑줄, 하이픈" disabled={accountAuthBusy} required /></label>
+              <label className="accountAccessField"><span>이메일</span><input type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} maxLength={254} value={registrationEmail} onChange={(event) => setRegistrationEmail(event.target.value)} placeholder="name@domain.com" disabled={accountAuthBusy} required /></label>
+              <label className="accountAccessField"><span>비밀번호</span><input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={registrationPassword} onChange={(event) => setRegistrationPassword(event.target.value)} placeholder="12자 이상" disabled={accountAuthBusy} required /></label>
+              <label className="accountAccessField"><span>비밀번호 확인</span><input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={registrationPasswordConfirm} onChange={(event) => setRegistrationPasswordConfirm(event.target.value)} placeholder="다시 입력하세요" disabled={accountAuthBusy} aria-invalid={Boolean(registrationPasswordConfirm && registrationPassword !== registrationPasswordConfirm)} aria-describedby={accountAuthError ? "registration-error" : undefined} required /></label>
+              {accountAuthError ? <p id="registration-error" className="accountGateError" role="alert">{accountAuthError}</p> : null}
+              <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy}>
+                {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <ShieldCheck size={18} />}
+                <span>{accountAuthBusy ? "요청 중" : "승인 요청 보내기"}</span>
+              </button>
+              <p className="registrationBoundary">가입은 승인 요청만 생성합니다. 새 Runtime Cell은 생성하지 않습니다.</p>
+            </form>
+          )}
         </section>
       </main>
     );
@@ -3307,8 +3638,11 @@ function App(): JSX.Element {
         onInstallPwa={() => void handleInstallPwa()}
         onDismissPwaInstall={handleDismissPwaInstall}
         onConnectOpenAi={() => void handleOpenAiConnect()}
+        onChangePassword={openPasswordDialog}
+        onApproveMembers={() => void openMemberApproval()}
         onLogout={() => void handleAccountLogout()}
         />
+        {renderMemberDialog()}
         {pendingHermesInteraction?.type === "approval" ? (
           <ApprovalGate
             interaction={pendingHermesInteraction}
@@ -3357,6 +3691,14 @@ function App(): JSX.Element {
             >
               <Search size={19} />
             </button>
+            <button className="aliasIconButton" type="button" title="비밀번호 변경" aria-label="비밀번호 변경" onClick={openPasswordDialog}>
+              <ShieldCheck size={18} />
+            </button>
+            {accountPrincipal.canApproveMembers ? (
+              <button className="aliasIconButton" type="button" title="회원 승인" onClick={() => void openMemberApproval()}>
+                <UserCircle2 size={18} />
+              </button>
+            ) : null}
             <button className="aliasIconButton" type="button" title={`${accountPrincipal.displayName}에서 나가기`} onClick={() => void handleAccountLogout()}>
               <LogOut size={18} />
             </button>
@@ -3768,6 +4110,8 @@ function App(): JSX.Element {
               </header>
 
               <p className="projectDrawerMessage">{deviceBusy ? "device 작업 처리 중..." : deviceMessage}</p>
+
+              <DesktopConnectorSection projectId={selectedProject?.id ?? null} />
 
               <div className="deviceToolbar">
                 <button
@@ -4697,6 +5041,7 @@ function App(): JSX.Element {
         </section>
       </section>
       </main>
+      {renderMemberDialog()}
       {pendingHermesInteraction?.type === "approval" ? (
         <ApprovalGate
           interaction={pendingHermesInteraction}

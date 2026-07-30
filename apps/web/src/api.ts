@@ -33,6 +33,7 @@ export interface HermesStreamEvent {
 }
 
 export interface TermesAccountPrincipal {
+  memberId: string;
   accountId: string;
   displayName: string;
   workspaceKey: string;
@@ -41,6 +42,15 @@ export interface TermesAccountPrincipal {
   email: string;
   workspaceRoot: string;
   canManageSharedOAuth: boolean;
+  canApproveMembers: boolean;
+}
+
+export interface PendingTermesMember {
+  memberId: string;
+  loginId: string;
+  email: string;
+  displayName: string;
+  createdAt: string;
 }
 
 export async function fetchTermesSession(): Promise<TermesAccountPrincipal | null> {
@@ -59,6 +69,46 @@ export async function loginTermesAccount(loginId: string, password: string): Pro
   const body = await response.json() as { principal?: TermesAccountPrincipal; error?: string };
   if (!response.ok || !body.principal) throw new Error(body.error || `Account login failed: ${response.status}`);
   return body.principal;
+}
+
+export async function registerTermesMember(input: {
+  displayName: string;
+  loginId: string;
+  email: string;
+  password: string;
+}): Promise<void> {
+  const response = await fetch("/api/account-auth/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) throw new Error(body.error || `Member registration failed: ${response.status}`);
+}
+
+export async function changeTermesPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch("/api/account-auth/password", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (response.ok || response.status === 204) return;
+  const body = await response.json().catch(() => ({})) as { error?: string };
+  throw new Error(body.error || `Password change failed: ${response.status}`);
+}
+
+export async function fetchPendingTermesMembers(): Promise<PendingTermesMember[]> {
+  const response = await fetch("/api/account-auth/members/pending");
+  const body = await response.json().catch(() => ({})) as { members?: PendingTermesMember[]; error?: string };
+  if (!response.ok) throw new Error(body.error || `Pending members failed: ${response.status}`);
+  return body.members || [];
+}
+
+export async function approveTermesMember(memberId: string): Promise<void> {
+  const response = await fetch(`/api/account-auth/members/${encodeURIComponent(memberId)}/approve`, { method: "POST" });
+  if (response.ok || response.status === 204) return;
+  const body = await response.json().catch(() => ({})) as { error?: string };
+  throw new Error(body.error || `Member approval failed: ${response.status}`);
 }
 
 export async function logoutTermesAccount(): Promise<void> {

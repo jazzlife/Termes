@@ -54,6 +54,7 @@ import { registerHermesRealtime } from "./hermes-realtime";
 import { registerOpenAiAuth } from "./openai-auth";
 import { requestHermesControl } from "./hermes-rpc-control";
 import { createAccountAuth, type AccountPrincipal } from "./account-auth";
+import { DesktopConnectorHub, type DesktopCommandResult } from "./desktop-connectors";
 
 const projectInputSchema = z.object({
   key: z
@@ -119,8 +120,8 @@ const hermesInteractionResponseSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const devicePlatformSchema = z.enum(["android", "tizen", "linux", "windows", "local_mock"]);
-const deviceTransportSchema = z.enum(["adb", "sdb", "ssh", "winrm", "local_mock"]);
+const devicePlatformSchema = z.enum(["android", "tizen", "linux", "windows", "macos", "local_mock"]);
+const deviceTransportSchema = z.enum(["adb", "sdb", "ssh", "winrm", "connector", "local_mock"]);
 const deviceStatusSchema = z.enum(["unknown", "offline", "online", "busy", "error"]);
 
 const deviceInputSchema = z.object({
@@ -298,7 +299,8 @@ function assertPlatformTransport(platform: DevicePlatform, transport: DeviceTran
   const allowed: Record<DevicePlatform, DeviceTransport[]> = {
     local_mock: ["local_mock"],
     linux: ["ssh"],
-    windows: ["winrm", "ssh"],
+    windows: ["winrm", "ssh", "connector"],
+    macos: ["connector"],
     android: ["adb"],
     tizen: ["sdb"],
   };
@@ -1300,7 +1302,7 @@ async function main(): Promise<void> {
     origin: false,
   });
   await app.register(websocket, {
-    options: { maxPayload: 4 * 1024 * 1024 },
+    options: { maxPayload: 16 * 1024 * 1024 },
   });
   const accountAuth = createAccountAuth({
     db,
@@ -1322,8 +1324,11 @@ async function main(): Promise<void> {
       || pathname === "/healthz"
       || pathname === "/api/health"
       || pathname === "/api/healthz"
+      || pathname === "/api/account-auth/register"
       || pathname === "/api/account-auth/login"
       || pathname === "/api/account-auth/session"
+      || pathname === "/api/desktop-connectors/pair"
+      || pathname === "/api/desktop-connectors/connect"
       || pathname === "/api/hermes/ws";
     if (publicPath) return;
     const presented = request.headers.authorization?.startsWith("Bearer ")
@@ -1368,6 +1373,14 @@ async function main(): Promise<void> {
 
   await registerHermesRealtime(app, { config, db, redis, principalForRequest });
   await registerOpenAiAuth(app, config, principalForRequest);
+  const desktopConnectors = new DesktopConnectorHub({
+    db,
+    redis,
+    artifactRoot: config.desktopArtifactRoot,
+    principalForRequest,
+  });
+  await desktopConnectors.initialize();
+  await desktopConnectors.registerRoutes(app);
   eventOutbox.start();
   const turnDispatchOutbox = new TurnDispatchOutboxDispatcher(db.pool, redis, (error) => {
     app.log.error({ err: error }, "Turn dispatch outbox failed");
@@ -1377,6 +1390,7 @@ async function main(): Promise<void> {
   app.addHook("onClose", async () => {
     await eventOutbox.stop();
     await turnDispatchOutbox.stop();
+    await desktopConnectors.close();
     redis.disconnect();
     await db.close();
   });
@@ -2338,11 +2352,18 @@ async function main(): Promise<void> {
   });
 
   app.patch("/api/devices/:deviceId", async (request, reply) => {
+    const principal = principalForRequest(request);
     const params = z.object({ deviceId: z.string().uuid() }).parse(request.params);
     const input = devicePatchSchema.parse(request.body);
-    const current = await db.pool.query<{ platform: string; transport: string }>(
-      "select platform, transport from devices where id = $1",
-      [params.deviceId],
+    const current = await db.pool.query<{ project_id: string; platform: string; transport: string }>(
+      `
+        select d.project_id, d.platform, d.transport
+        from devices d
+        join projects p on p.id = d.project_id and p.workspace_id = $2
+        join project_members pm on pm.project_id = p.id and pm.user_id = $3
+        where d.id = $1
+      `,
+      [params.deviceId, principal.workspaceId, principal.accountId],
     );
     const currentRow = current.rows[0];
     if (!currentRow) {
@@ -2378,7 +2399,7 @@ async function main(): Promise<void> {
           status = coalesce($8, status),
           last_seen_at = case when $8 = 'online' then now() else last_seen_at end,
           updated_at = now()
-        where id = $1
+        where id = $1 and project_id = $9
         returning id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at, created_at, updated_at
       `,
       [
@@ -2390,6 +2411,7 @@ async function main(): Promise<void> {
         input.labels !== undefined,
         JSON.stringify(input.labels || {}),
         input.status ?? null,
+        currentRow.project_id,
       ],
     );
     const row = result.rows[0];
@@ -2400,14 +2422,20 @@ async function main(): Promise<void> {
   });
 
   app.delete("/api/devices/:deviceId", async (request, reply) => {
+    const principal = principalForRequest(request);
     const params = z.object({ deviceId: z.string().uuid() }).parse(request.params);
     const result = await db.pool.query<{ id: string; project_id: string; key: string; name: string }>(
       `
-        delete from devices
-        where id = $1
-        returning id, project_id, key, name
+        delete from devices d
+        using projects p, project_members pm
+        where d.id = $1
+          and p.id = d.project_id
+          and p.workspace_id = $2
+          and pm.project_id = p.id
+          and pm.user_id = $3
+        returning d.id, d.project_id, d.key, d.name
       `,
-      [params.deviceId],
+      [params.deviceId, principal.workspaceId, principal.accountId],
     );
     const row = result.rows[0];
     if (!row) {
@@ -2486,6 +2514,7 @@ async function main(): Promise<void> {
   });
 
   app.post("/api/devices/:deviceId/commands", async (request, reply) => {
+    const principal = principalForRequest(request);
     const params = z.object({ deviceId: z.string().uuid() }).parse(request.params);
     const input = deviceCommandInputSchema.parse(request.body);
     const deviceResult = await db.pool.query<{
@@ -2503,17 +2532,33 @@ async function main(): Promise<void> {
       updated_at: Date;
     }>(
       `
-        select id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at, created_at, updated_at
-        from devices
-        where id = $1
+        select d.id, d.project_id, d.key, d.name, d.platform, d.transport, d.endpoint, d.labels, d.status,
+               d.last_seen_at, d.created_at, d.updated_at
+        from devices d
+        join projects p on p.id = d.project_id and p.workspace_id = $2
+        join project_members pm on pm.project_id = p.id and pm.user_id = $3
+        where d.id = $1
       `,
-      [params.deviceId],
+      [params.deviceId, principal.workspaceId, principal.accountId],
     );
     const deviceRow = deviceResult.rows[0];
     if (!deviceRow) {
       return reply.code(404).send({ error: "Device not found" });
     }
     const device = mapDevice(deviceRow);
+    if (input.taskId) {
+      const taskResult = await db.pool.query<{ id: string }>(
+        `
+          select t.id
+          from tasks t
+          join projects p on p.id = t.project_id and p.workspace_id = $3
+          join project_members pm on pm.project_id = p.id and pm.user_id = $4
+          where t.id = $1 and t.project_id = $2
+        `,
+        [input.taskId, device.projectId, principal.workspaceId, principal.accountId],
+      );
+      if (!taskResult.rows[0]) return reply.code(404).send({ error: "Task not found" });
+    }
     const actionOwner = actionPlatform(input.action);
     if (!actionOwner || actionOwner !== device.platform) {
       return reply.code(400).send({ error: `Action ${input.action} does not match device platform ${device.platform}` });
@@ -2672,29 +2717,45 @@ async function main(): Promise<void> {
       payload: { deviceCommandId: command.id, deviceId: device.id, action: command.action, status: "running" },
     });
 
-    const gatewayResponse = await fetch(`${config.deviceGatewayUrl}/devices/${encodeURIComponent(device.id)}/command`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        commandId: command.id,
-        device,
-        action: command.action,
-        params: commandParams,
-        timeoutMs: input.timeoutMs,
-      }),
-    });
-    const gatewayBody = (await gatewayResponse.json().catch(() => null)) as
-      | {
-          status?: string;
-          stdout?: string;
-          stderr?: string;
-          exitCode?: number;
-          artifactUri?: string | null;
-          startedAt?: string;
-          completedAt?: string;
-        }
-      | null;
-    const finalStatus = gatewayResponse.ok
+    let gatewayOk = false;
+    let gatewayBody: Partial<DesktopCommandResult> | null = null;
+    if (device.transport === "connector") {
+      try {
+        gatewayBody = await desktopConnectors.executeCommand({
+          commandId: command.id,
+          deviceId: device.id,
+          action: command.action,
+          params: commandParams,
+          timeoutMs: input.timeoutMs ?? 60_000,
+        });
+        gatewayOk = true;
+      } catch (error) {
+        gatewayBody = {
+          status: "failed",
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Desktop connector request failed",
+          exitCode: 1,
+          artifactUri: null,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        };
+      }
+    } else {
+      const gatewayResponse = await fetch(`${config.deviceGatewayUrl}/devices/${encodeURIComponent(device.id)}/command`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          commandId: command.id,
+          device,
+          action: command.action,
+          params: commandParams,
+          timeoutMs: input.timeoutMs,
+        }),
+      });
+      gatewayOk = gatewayResponse.ok;
+      gatewayBody = (await gatewayResponse.json().catch(() => null)) as Partial<DesktopCommandResult> | null;
+    }
+    const finalStatus = gatewayOk
       ? assertDeviceCommandStatus(gatewayBody?.status || "failed")
       : "failed";
     const finalUpdate = await db.pool.query<typeof commandRow>(
@@ -2716,8 +2777,8 @@ async function main(): Promise<void> {
         command.id,
         finalStatus,
         gatewayBody?.stdout ?? "",
-        gatewayBody?.stderr ?? (gatewayResponse.ok ? "" : "Device gateway request failed"),
-        gatewayBody?.exitCode ?? (gatewayResponse.ok ? 0 : 1),
+        gatewayBody?.stderr ?? (gatewayOk ? "" : "Device execution request failed"),
+        gatewayBody?.exitCode ?? (gatewayOk ? 0 : 1),
         gatewayBody?.artifactUri ?? null,
         gatewayBody?.startedAt ? new Date(gatewayBody.startedAt) : new Date(),
       ],
@@ -2806,6 +2867,7 @@ async function main(): Promise<void> {
   });
 
   app.get("/api/device-commands/:commandId", async (request, reply) => {
+    const principal = principalForRequest(request);
     const params = z.object({ commandId: z.string().uuid() }).parse(request.params);
     const result = await db.pool.query<{
       id: string;
@@ -2826,12 +2888,14 @@ async function main(): Promise<void> {
       updated_at: Date;
     }>(
       `
-        select id, project_id, task_id, device_id, action, params, status, approval_id,
-               stdout, stderr, exit_code, artifact_uri, started_at, completed_at, created_at, updated_at
-        from device_commands
-        where id = $1
+        select dc.id, dc.project_id, dc.task_id, dc.device_id, dc.action, dc.params, dc.status, dc.approval_id,
+               dc.stdout, dc.stderr, dc.exit_code, dc.artifact_uri, dc.started_at, dc.completed_at, dc.created_at, dc.updated_at
+        from device_commands dc
+        join projects p on p.id = dc.project_id and p.workspace_id = $2
+        join project_members pm on pm.project_id = p.id and pm.user_id = $3
+        where dc.id = $1
       `,
-      [params.commandId],
+      [params.commandId, principal.workspaceId, principal.accountId],
     );
     const row = result.rows[0];
     if (!row) {
@@ -2841,14 +2905,17 @@ async function main(): Promise<void> {
   });
 
   app.get("/api/device-commands/:commandId/logs", async (request, reply) => {
+    const principal = principalForRequest(request);
     const params = z.object({ commandId: z.string().uuid() }).parse(request.params);
     const result = await db.pool.query<{ id: string; stdout: string | null; stderr: string | null; artifact_uri: string | null }>(
       `
-        select id, stdout, stderr, artifact_uri
-        from device_commands
-        where id = $1
+        select dc.id, dc.stdout, dc.stderr, dc.artifact_uri
+        from device_commands dc
+        join projects p on p.id = dc.project_id and p.workspace_id = $2
+        join project_members pm on pm.project_id = p.id and pm.user_id = $3
+        where dc.id = $1
       `,
-      [params.commandId],
+      [params.commandId, principal.workspaceId, principal.accountId],
     );
     const row = result.rows[0];
     if (!row) {

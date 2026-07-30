@@ -125,6 +125,8 @@ interface MobileExperienceProps {
   onInstallPwa: () => void;
   onDismissPwaInstall: () => void;
   onConnectOpenAi: () => void;
+  onChangePassword: () => void;
+  onApproveMembers: () => void;
   onLogout: () => void;
 }
 
@@ -998,6 +1000,14 @@ export function MobileExperience(props: MobileExperienceProps): JSX.Element {
           <section className="mobileSettingsSection">
             <h2>Account</h2>
             <div className="mobileAccountCard"><UserCircle2 size={22} /><div><strong>{props.account.displayName}</strong><span>{props.account.workspaceKey}</span></div></div>
+            <button className="mobileSecondaryButton" type="button" onClick={props.onChangePassword}>
+              <ShieldCheck size={18} />비밀번호 변경
+            </button>
+            {props.account.canApproveMembers ? (
+              <button className="mobileSecondaryButton" type="button" onClick={props.onApproveMembers}>
+                <UserCircle2 size={18} />회원 승인
+              </button>
+            ) : null}
             <div className="mobileAutonomyStatus">
               <ShieldCheck size={20} />
               <div>

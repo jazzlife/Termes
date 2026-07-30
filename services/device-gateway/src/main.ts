@@ -190,7 +190,8 @@ function validatePlatformTransport(device: GatewayDeviceInput): void {
   const allowed: Record<DevicePlatform, DeviceTransport[]> = {
     local_mock: ["local_mock"],
     linux: ["ssh"],
-    windows: ["winrm", "ssh"],
+    windows: ["winrm", "ssh", "connector"],
+    macos: ["connector"],
     android: ["adb"],
     tizen: ["sdb"],
   };

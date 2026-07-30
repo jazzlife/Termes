@@ -1,0 +1,44 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Termes Connector",
+  "version": "0.1.0",
+  "identifier": "app.turtlelab.termes.connector",
+  "build": {
+    "beforeDevCommand": "pnpm build --watch",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Termes Connector",
+        "width": 1080,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 620,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Secure Windows and macOS workspace connector for Termes",
+    "longDescription": "Pairs a Windows or macOS computer with a Termes workspace for approved observation, control, analysis, and diagnostics.",
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "entitlements": "Entitlements.plist"
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    }
+  }
+}

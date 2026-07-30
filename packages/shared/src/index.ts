@@ -143,6 +143,10 @@ export const eventTypes = [
   "device.command.completed",
   "device.command.failed",
   "device.command.blocked",
+  "device.connector.paired",
+  "device.connector.connected",
+  "device.connector.disconnected",
+  "device.connector.revoked",
   "verification.created",
   "task.completed",
   "task.failed",
@@ -150,10 +154,10 @@ export const eventTypes = [
 
 export type EventType = (typeof eventTypes)[number];
 
-export const devicePlatforms = ["android", "tizen", "linux", "windows", "local_mock"] as const;
+export const devicePlatforms = ["android", "tizen", "linux", "windows", "macos", "local_mock"] as const;
 export type DevicePlatform = (typeof devicePlatforms)[number];
 
-export const deviceTransports = ["adb", "sdb", "ssh", "winrm", "local_mock"] as const;
+export const deviceTransports = ["adb", "sdb", "ssh", "winrm", "connector", "local_mock"] as const;
 export type DeviceTransport = (typeof deviceTransports)[number];
 
 export const deviceStatuses = ["unknown", "offline", "online", "busy", "error"] as const;
@@ -167,6 +171,7 @@ export const deviceCommandStatuses = [
   "failed",
   "cancelled",
   "blocked",
+  "unknown",
 ] as const;
 export type DeviceCommandStatus = (typeof deviceCommandStatuses)[number];
 
@@ -325,6 +330,55 @@ export interface DeviceSummary {
   lastSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export const desktopConnectorStatuses = ["offline", "connecting", "online", "busy", "error", "revoked"] as const;
+export type DesktopConnectorStatus = (typeof desktopConnectorStatuses)[number];
+
+export interface DesktopConnectorPermissionState {
+  accessibility: "granted" | "denied" | "not_determined" | "unsupported";
+  screenCapture: "granted" | "denied" | "not_determined" | "unsupported";
+  inputControl: "granted" | "denied" | "not_determined" | "unsupported";
+  processInspection: "granted" | "denied" | "not_determined" | "unsupported";
+}
+
+export interface DesktopConnectorSummary {
+  id: string;
+  projectId: string;
+  projectName: string;
+  deviceId: string;
+  name: string;
+  platform: Extract<DevicePlatform, "windows" | "macos">;
+  status: DesktopConnectorStatus;
+  appVersion: string;
+  protocolVersion: number;
+  credentialVersion: number;
+  capabilities: string[];
+  permissions: DesktopConnectorPermissionState;
+  lastConnectedAt: string | null;
+  lastHeartbeatAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopConnectorPairingCodeSummary {
+  pairingCode: string;
+  expiresAt: string;
+  projectId: string;
+  projectName: string;
+}
+
+export interface DesktopConnectorPairingResult {
+  connectorId: string;
+  deviceId: string;
+  deviceToken: string;
+  accountId: string;
+  workspaceId: string;
+  workspaceKey: string;
+  projectId: string;
+  projectName: string;
+  websocketPath: string;
 }
 
 export interface DeviceCommandSummary {

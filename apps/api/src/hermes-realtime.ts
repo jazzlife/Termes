@@ -1,6 +1,6 @@
 import type { ApiConfig } from "./config";
 import type { Db } from "./db";
-import type { AccountPrincipal } from "./account-auth";
+import { MEMBER_SESSION_REVOKED_CHANNEL, type AccountPrincipal } from "./account-auth";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type Redis from "ioredis";
 import { createHash, randomBytes } from "node:crypto";
@@ -21,6 +21,8 @@ const BLOCKED_SHARED_ACCOUNT_METHODS = new Set([
 ]);
 
 type TicketClaims = {
+  memberId?: string;
+  authSessionVersion?: number;
   accountId: string;
   workspaceId: string;
   runtimeCellId: string;
@@ -261,6 +263,26 @@ async function managerConnection(
   return body.wsUrl;
 }
 
+async function memberSessionIsCurrent(
+  db: Db,
+  memberId: string,
+  accountId: string,
+  authSessionVersion: number,
+): Promise<boolean> {
+  const result = await db.pool.query(
+    `
+      select 1
+      from account_members
+      where id = $1
+        and account_id = $2
+        and status = 'approved'
+        and auth_session_version = $3
+    `,
+    [memberId, accountId, authSessionVersion],
+  );
+  return (result.rowCount ?? 0) === 1;
+}
+
 export async function registerHermesRealtime(
   app: FastifyInstance,
   dependencies: {
@@ -272,6 +294,18 @@ export async function registerHermesRealtime(
 ): Promise<void> {
   const { config, db, redis, principalForRequest } = dependencies;
   const mirrors = new CellFrameMirrorRegistry(redis, app.log);
+  const memberSockets = new Map<string, Set<() => void>>();
+  const subscriber = typeof redis.duplicate === "function" ? redis.duplicate() : null;
+  if (subscriber) {
+    await subscriber.subscribe(MEMBER_SESSION_REVOKED_CHANNEL);
+    subscriber.on("message", (channel, memberId) => {
+      if (channel !== MEMBER_SESSION_REVOKED_CHANNEL) return;
+      for (const close of memberSockets.get(memberId) ?? []) close();
+    });
+    app.addHook("onClose", async () => {
+      await subscriber.quit();
+    });
+  }
 
   app.post("/api/hermes/realtime-ticket", async (request, reply) => {
     const input = ticketInputSchema.parse(request.body || {});
@@ -287,6 +321,8 @@ export async function registerHermesRealtime(
       let accountId: string;
       let defaultWorkspaceId: string;
       let runtimeCellId: string;
+      let memberId: string | undefined;
+      let authSessionVersion: number | undefined;
       if (internalRequest) {
         if (!taskId) throw new Error("Internal Hermes ticket requires a task scope");
         const ownership = await db.pool.query<{
@@ -313,6 +349,13 @@ export async function registerHermesRealtime(
         accountId = principal.accountId;
         defaultWorkspaceId = principal.workspaceId;
         runtimeCellId = principal.runtimeCellId;
+        memberId = principal.memberId;
+        const member = await db.pool.query<{ auth_session_version: string | number }>(
+          `select auth_session_version from account_members where id = $1 and account_id = $2 and status = 'approved'`,
+          [principal.memberId, principal.accountId],
+        );
+        if (!member.rows[0]) throw new Error("Member session is no longer active");
+        authSessionVersion = Number(member.rows[0].auth_session_version);
       }
       const workspaceId = await validateTicketScope(
         db,
@@ -324,6 +367,7 @@ export async function registerHermesRealtime(
       const ticket = randomBytes(32).toString("base64url");
       const now = Date.now();
       const claims: TicketClaims = {
+        ...(memberId && authSessionVersion !== undefined ? { memberId, authSessionVersion } : {}),
         accountId,
         workspaceId,
         runtimeCellId,
@@ -349,6 +393,15 @@ export async function registerHermesRealtime(
       const pending: Array<{ data: RawData; binary: boolean; bytes: number }> = [];
       let pendingBytes = 0;
       let closed = false;
+      let registeredMemberId: string | null = null;
+
+      const unregisterMemberSocket = () => {
+        if (!registeredMemberId) return;
+        const sockets = memberSockets.get(registeredMemberId);
+        sockets?.delete(revokeMemberSocket);
+        if (sockets?.size === 0) memberSockets.delete(registeredMemberId);
+        registeredMemberId = null;
+      };
 
       const closeBoth = (code: number, reason: string) => {
         if (closed) {
@@ -361,7 +414,9 @@ export async function registerHermesRealtime(
         if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
           upstream.close(code, reason);
         }
+        unregisterMemberSocket();
       };
+      const revokeMemberSocket = () => closeBoth(4401, "member_session_revoked");
 
       // The client may send session.create in the same turn as the WebSocket
       // open event. Register this listener before any ticket/database/manager
@@ -412,9 +467,27 @@ export async function registerHermesRealtime(
           claims.taskId,
         );
         if (workspaceId !== claims.workspaceId) throw new Error("Ticket workspace scope changed");
+        if ((claims.memberId === undefined) !== (claims.authSessionVersion === undefined)) {
+          throw new Error("Incomplete member ticket claims");
+        }
+        if (
+          claims.memberId
+          && !await memberSessionIsCurrent(db, claims.memberId, claims.accountId, claims.authSessionVersion!)
+        ) throw new Error("Member session changed");
       } catch {
         closeBoth(4403, "invalid_ticket_scope");
         return;
+      }
+
+      if (claims.memberId && claims.authSessionVersion !== undefined) {
+        registeredMemberId = claims.memberId;
+        const sockets = memberSockets.get(claims.memberId) ?? new Set<() => void>();
+        sockets.add(revokeMemberSocket);
+        memberSockets.set(claims.memberId, sockets);
+        if (!await memberSessionIsCurrent(db, claims.memberId, claims.accountId, claims.authSessionVersion)) {
+          closeBoth(4401, "member_session_revoked");
+          return;
+        }
       }
 
       let upstreamUrl: string;

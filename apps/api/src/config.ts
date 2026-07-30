@@ -9,6 +9,7 @@ export interface ApiConfig {
   hermesManagerUrl: string;
   hermesManagerServiceToken: string;
   deviceGatewayUrl: string;
+  desktopArtifactRoot: string;
   singleAccountId: string;
   singleWorkspaceId: string;
   singleRuntimeCellId: string;
@@ -49,6 +50,7 @@ export function loadConfig(): ApiConfig {
     hermesManagerUrl: (process.env.HERMES_MANAGER_URL || "http://hermes-manager:8080").replace(/\/+$/, ""),
     hermesManagerServiceToken: requiredEnv("HERMES_MANAGER_SERVICE_TOKEN"),
     deviceGatewayUrl: (process.env.DEVICE_GATEWAY_URL || "http://device-gateway:8080").replace(/\/+$/, ""),
+    desktopArtifactRoot: process.env.DESKTOP_ARTIFACT_ROOT || "/data/docker_data/termes/desktop-artifacts",
     singleAccountId: requiredEnv("TERMES_SINGLE_ACCOUNT_ID"),
     singleWorkspaceId: requiredEnv("TERMES_SINGLE_WORKSPACE_ID"),
     singleRuntimeCellId: requiredEnv("TERMES_SINGLE_RUNTIME_CELL_ID"),

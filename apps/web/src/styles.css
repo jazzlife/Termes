@@ -4658,16 +4658,19 @@ button {
 .accountGate {
   min-height: 100dvh;
   display: grid;
+  grid-template-columns: minmax(320px, 560px) minmax(0, 1fr);
   place-items: center;
-  padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  padding: 0;
   background: var(--termes-canvas);
   color: var(--termes-text);
   font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", Inter, "Segoe UI", sans-serif;
 }
 
 .accountGateCard {
-  width: min(100%, 420px);
-  padding: 28px;
+  width: min(calc(100% - 40px), 460px);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  padding: 32px;
   border: 1px solid var(--termes-border-subtle);
   border-radius: 20px;
   background: var(--termes-surface);
@@ -4676,17 +4679,60 @@ button {
 
 .accountGateCard.compact {
   display: flex;
+  grid-column: 1 / -1;
   min-height: 160px;
+  justify-self: center;
   align-items: center;
   justify-content: center;
   gap: 12px;
   color: var(--termes-text-secondary);
 }
 
+.accountGateBrand {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 68px;
+  background: #172237;
+  color: #fff;
+}
+
+.accountGateBrand img {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+}
+
+.accountGateBrand h2 {
+  margin: 0;
+  font-size: clamp(30px, 3vw, 40px);
+  line-height: 1.18;
+}
+
+.accountGateBrand p {
+  max-width: 390px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
 .accountGateIntro {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.accountGateAppIcon,
+.memberDialogAppIcon {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+  object-fit: contain;
 }
 
 .accountGateMark {
@@ -4761,6 +4807,91 @@ button {
   font-size: 16px;
 }
 
+.accountAccessField small {
+  display: block;
+  margin-top: 7px;
+  color: var(--termes-text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.accountAuthTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--termes-subtle);
+}
+
+.accountAuthTabs button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--termes-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.accountAuthTabs button.active {
+  background: var(--termes-surface);
+  color: var(--termes-primary);
+  box-shadow: 0 1px 4px rgba(20, 27, 45, 0.1);
+}
+
+.accountGateForm {
+  margin-top: 20px;
+}
+
+.accountGateForm.registration {
+  margin-top: 16px;
+}
+
+.accountGateForm.registration .accountAccessField {
+  margin-top: 11px;
+}
+
+.registrationBoundary,
+.memberDialogBoundary {
+  margin: 12px 0 0;
+  color: var(--termes-text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.registrationComplete {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 30px 18px;
+  border-radius: 14px;
+  background: var(--termes-primary-soft);
+  color: var(--termes-primary);
+  text-align: center;
+}
+
+.registrationComplete p {
+  margin: 0;
+  color: var(--termes-text-secondary);
+  font-size: 13px;
+}
+
+.registrationComplete button {
+  min-height: 42px;
+  margin-top: 8px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--termes-primary);
+  color: var(--termes-primary-foreground);
+  font: inherit;
+  font-weight: 700;
+}
+
 .accountAccessField input:focus-visible,
 .accountGateSubmit:focus-visible {
   outline: 2px solid var(--termes-focus);
@@ -4770,6 +4901,16 @@ button {
 .accountGateError {
   margin: 12px 0 0;
   color: var(--termes-danger);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.accountGateNotice {
+  margin: 12px 0 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: var(--termes-subtle);
+  color: var(--termes-text-secondary);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -4793,6 +4934,202 @@ button {
 .accountGateSubmit:disabled {
   background: var(--termes-subtle);
   color: var(--termes-text-tertiary);
+}
+
+.memberDialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+  background: rgba(10, 16, 28, 0.64);
+  backdrop-filter: blur(8px);
+}
+
+.memberDialog {
+  width: min(100%, 620px);
+  max-height: min(820px, calc(100dvh - 40px));
+  overflow: auto;
+  padding: 30px;
+  border: 1px solid var(--termes-border-subtle);
+  border-radius: 20px;
+  background: var(--termes-surface);
+  color: var(--termes-text);
+  box-shadow: 0 30px 90px rgba(10, 16, 28, 0.32);
+}
+
+.memberDialogHeader {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.memberDialogHeader > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.memberDialogHeader h2,
+.memberDialogHeader p {
+  margin: 0;
+}
+
+.memberDialogHeader h2 {
+  font-size: 24px;
+}
+
+.memberDialogHeader > div > p:last-child {
+  margin-top: 5px;
+  color: var(--termes-text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.memberDialogClose {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid var(--termes-border-subtle);
+  border-radius: 12px;
+  background: var(--termes-surface);
+  color: var(--termes-text-secondary);
+}
+
+.memberDialogForm,
+.memberApprovalBody {
+  margin-top: 24px;
+}
+
+.memberDialogNotice,
+.memberApprovalSummary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 16px 0 0;
+  padding: 13px;
+  border-radius: 12px;
+  background: var(--termes-subtle);
+  color: var(--termes-text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.memberApprovalSummary {
+  color: var(--termes-warning);
+  font-weight: 700;
+}
+
+.memberApprovalList {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.memberApprovalRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  padding: 14px;
+  border: 1px solid var(--termes-border-subtle);
+  border-radius: 13px;
+  background: var(--termes-main);
+}
+
+.memberApprovalRow div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.memberApprovalRow span {
+  overflow: hidden;
+  color: var(--termes-text-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberApprovalRow button {
+  min-width: 88px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--termes-primary);
+  color: var(--termes-primary-foreground);
+  font: inherit;
+  font-weight: 700;
+}
+
+.memberApprovalEmpty {
+  min-height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--termes-text-secondary);
+  font-size: 14px;
+}
+
+.memberApprovalFailure {
+  color: var(--termes-danger);
+}
+
+@media (max-width: 760px) {
+  .accountGate {
+    grid-template-columns: minmax(0, 1fr);
+    padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  }
+
+  .accountGateBrand {
+    display: none;
+  }
+
+  .accountGateCard {
+    width: 100%;
+    max-height: none;
+    padding: 20px;
+  }
+
+  .accountGateAppIcon,
+  .memberDialogAppIcon {
+    width: 52px;
+    height: 52px;
+    flex-basis: 52px;
+  }
+
+  .memberDialog {
+    width: 100%;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .memberDialogBackdrop {
+    display: block;
+    padding: 0;
+    background: var(--termes-surface);
+    backdrop-filter: none;
+  }
+
+  .memberApprovalRow {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .memberApprovalRow button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
 }
 
 .accountHeaderActions,

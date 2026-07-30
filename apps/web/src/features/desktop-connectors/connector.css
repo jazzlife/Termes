@@ -1,0 +1,112 @@
+.desktopConnectorSection {
+  --border: var(--termes-border);
+  --panel: var(--termes-main);
+  --surface: var(--termes-surface);
+  --text: var(--termes-text);
+  --muted: var(--termes-text-tertiary);
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 17px;
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, #48d996 22%);
+  border-radius: 14px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--panel) 94%, #48d996 6%), var(--panel));
+}
+
+.desktopConnectorHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.desktopConnectorHeader h3 {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+
+.desktopConnectorHeader p {
+  margin: 5px 0 0;
+  max-width: 460px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.desktopConnectorHeaderActions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.desktopPairingCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, #49d998 45%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, #49d998 8%, var(--surface));
+}
+
+.desktopPairingCard > div { display: grid; gap: 3px; }
+.desktopPairingCard span, .desktopPairingCard small { color: var(--muted); font-size: 9px; }
+.desktopPairingCard strong { color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 21px; letter-spacing: 0.16em; }
+.desktopPairingCard button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #07120d;
+  background: #54dd9d;
+  font-size: 10px;
+  font-weight: 750;
+}
+.desktopPairingCard.expired { opacity: 0.62; filter: saturate(0.35); }
+
+.desktopConnectorMessage { margin: 0; color: var(--muted); font-size: 9.5px; }
+.desktopConnectorEmpty { display: grid; min-height: 104px; place-items: center; align-content: center; gap: 5px; color: var(--muted); text-align: center; font-size: 10px; }
+.desktopConnectorEmpty strong { color: var(--text); font-size: 11px; }
+
+.desktopConnectorList { display: grid; gap: 9px; }
+.desktopConnectorCard { display: grid; gap: 11px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.desktopConnectorCard.status-online, .desktopConnectorCard.status-busy { border-color: color-mix(in srgb, #4bd994 34%, var(--border)); }
+.desktopConnectorCard.status-revoked { opacity: 0.62; }
+.desktopConnectorIdentity { display: flex; align-items: center; gap: 10px; }
+.desktopConnectorPlatform { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border); border-radius: 9px; color: #6be4a9; background: color-mix(in srgb, #49d998 7%, var(--panel)); }
+.desktopConnectorIdentity > div:last-child { min-width: 0; flex: 1; }
+.desktopConnectorIdentity > div:last-child > span { color: var(--muted); font-size: 9px; }
+.desktopConnectorNameLine { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.desktopConnectorNameLine strong { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.desktopConnectorStatus { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; color: var(--muted); font-size: 8.5px; font-weight: 700; }
+.desktopConnectorStatus i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.desktopConnectorStatus.online, .desktopConnectorStatus.busy { color: #46d58f; }
+.desktopConnectorStatus.connecting { color: #eeb352; }
+.desktopConnectorStatus.error, .desktopConnectorStatus.revoked { color: #ed7079; }
+
+.desktopConnectorMeta { display: grid; grid-template-columns: 1.5fr 0.7fr 0.7fr; gap: 7px; }
+.desktopConnectorMeta > div { display: grid; gap: 4px; min-width: 0; padding: 8px 9px; border-radius: 7px; background: var(--panel); }
+.desktopConnectorMeta span { color: var(--muted); font-size: 8px; }
+.desktopConnectorMeta strong { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+
+.desktopConnectorPermissions { display: flex; flex-wrap: wrap; gap: 5px; }
+.desktopConnectorPermissions span { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 7px; color: var(--muted); font-size: 8px; }
+.desktopConnectorPermissions span.granted { border-color: color-mix(in srgb, #48d996 25%, var(--border)); color: #68dba4; }
+.desktopConnectorPermissions span.missing { color: #b37d81; }
+
+.desktopConnectorCardFooter { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid var(--border); }
+.desktopConnectorCardFooter > span { color: var(--muted); font-size: 8px; }
+.desktopConnectorRevoke { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 0; color: #d77f85; background: transparent; font-size: 9px; }
+.desktopConnectorRevoke:hover { color: #f4979e; }
+.desktopConnectorRevoked { color: #b57479 !important; }
+
+@media (max-width: 900px) {
+  .desktopConnectorHeader { flex-direction: column; }
+  .desktopConnectorHeaderActions { width: 100%; justify-content: flex-end; }
+}

@@ -68,6 +68,7 @@ const mirrorRecord = {
 };
 
 const defaultPrincipal = {
+  memberId: "30000000-0000-0000-0000-000000000001",
   accountId: "00000000-0000-0000-0000-000000000001",
   workspaceId: "10000000-0000-0000-0000-000000000001",
   runtimeCellId: "20000000-0000-0000-0000-000000000001",
@@ -75,6 +76,8 @@ const defaultPrincipal = {
   displayName: "Master",
   workspaceKey: "default",
   workspaceRoot: "/workspace",
+  canManageSharedOAuth: true,
+  canApproveMembers: true,
 };
 
 test("mirror는 Redis 영속화 완료 전 프레임을 전달하지 않고 고정 길이 삭제를 사용하지 않는다", async () => {
@@ -154,9 +157,13 @@ test("single-use Termes ticket relays Hermes frames unchanged and mirrors unknow
   redis.failuresRemaining = 1;
   const db = {
     pool: {
-      query: async (sql: string) => /from account_workspaces/i.test(sql)
-        ? ({ rows: [{ ok: 1 }], rowCount: 1 })
-        : ({ rows: [], rowCount: 0 }),
+      query: async (sql: string) => {
+        if (/from account_workspaces/i.test(sql)) return { rows: [{ ok: 1 }], rowCount: 1 };
+        if (/from account_members/i.test(sql)) {
+          return { rows: [{ auth_session_version: 0 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
     },
     close: async () => {},
   } as unknown as Db;
@@ -253,9 +260,13 @@ test("client open 직후 보낸 첫 JSON-RPC 프레임을 manager 조회 중에�
 
   const redis = new MemoryRedis();
   const db = {
-    pool: { query: async (sql: string) => /from account_workspaces/i.test(sql)
-      ? ({ rows: [{ ok: 1 }], rowCount: 1 })
-      : ({ rows: [], rowCount: 0 }) },
+    pool: { query: async (sql: string) => {
+      if (/from account_workspaces/i.test(sql)) return { rows: [{ ok: 1 }], rowCount: 1 };
+      if (/from account_members/i.test(sql)) {
+        return { rows: [{ auth_session_version: 0 }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    } },
     close: async () => {},
   } as unknown as Db;
   const config = {
