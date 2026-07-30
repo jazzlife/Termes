@@ -2,7 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Activity, X } from "lucide-react";
 import type {
+  ActivityEntry,
   ConnectionPhase,
   ConnectorSnapshot,
   PendingApproval,
@@ -103,6 +105,9 @@ function App() {
   const [pairingCode, setPairingCode] = React.useState("");
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [activityOpen, setActivityOpen] = React.useState(false);
+  const activityTriggerRef = React.useRef<HTMLButtonElement>(null);
+  const backgroundRef = React.useRef<HTMLElement>(null);
 
   React.useEffect(() => {
     let stopped = false;
@@ -142,6 +147,13 @@ function App() {
       .catch((refreshError) => setError(errorMessage(refreshError)));
   }), []);
 
+  React.useEffect(() => {
+    const background = backgroundRef.current;
+    if (!background) return;
+    background.toggleAttribute("inert", activityOpen);
+    return () => background.removeAttribute("inert");
+  }, [activityOpen]);
+
   const run = React.useCallback(async <T,>(name: string, task: () => Promise<T>) => {
     setBusyAction(name);
     setError(null);
@@ -153,6 +165,11 @@ function App() {
     } finally {
       setBusyAction(null);
     }
+  }, []);
+
+  const closeActivity = React.useCallback(() => {
+    setActivityOpen(false);
+    requestAnimationFrame(() => activityTriggerRef.current?.focus());
   }, []);
 
   async function handlePair(event: React.FormEvent) {
@@ -189,7 +206,12 @@ function App() {
   const online = snapshot.phase === "online" || snapshot.phase === "busy";
 
   return (
-    <main className="app-shell">
+    <>
+    <main
+      ref={backgroundRef}
+      className="app-shell"
+      aria-hidden={activityOpen ? true : undefined}
+    >
       <header className="topbar">
         <div className="brand">
           <img src="/termes-icon.png" alt="" className="brand-logo" />
@@ -198,9 +220,15 @@ function App() {
             <span>Windows · macOS</span>
           </div>
         </div>
-        <div className={`connection-pill phase-${snapshot.phase}`}>
-          <i />
-          {phaseLabels[snapshot.phase]}
+        <div className="topbar-actions">
+          <button ref={activityTriggerRef} className="activity-trigger" type="button" onClick={() => setActivityOpen(true)}>
+            <Activity aria-hidden="true" size={14} />
+            활동 기록
+          </button>
+          <div className={`connection-pill phase-${snapshot.phase}`}>
+            <i />
+            {phaseLabels[snapshot.phase]}
+          </div>
         </div>
       </header>
 
@@ -269,8 +297,8 @@ function App() {
           </form>
         </section>
       ) : (
-        <div className="dashboard-grid">
-          <section className="panel connection-panel">
+        <div className="connected-layout">
+          <section className="connection-section">
             <div className="section-heading">
               <div>
                 <span className="eyebrow">현재 연결</span>
@@ -322,9 +350,19 @@ function App() {
                 <small>시스템·프로세스·화면 분석만 자동 승인합니다. 제어 작업은 항상 묻습니다.</small>
               </span>
             </label>
+            <button
+              className="destructive-link"
+              type="button"
+              onClick={() => {
+                if (!window.confirm("이 PC의 로컬 연결 자격 증명을 삭제할까요? Termes에서 완전히 폐기하려면 웹의 Devices 화면에서도 연결을 해제하세요.")) return;
+                void run("forget", () => invokeSnapshot("forget_connector")).catch(() => undefined);
+              }}
+            >
+              이 PC에서 연결 정보 삭제
+            </button>
           </section>
 
-          <section className="panel permissions-panel">
+          <section className="permissions-section">
             <div className="section-heading inline">
               <div>
                 <span className="eyebrow">로컬 권한</span>
@@ -378,7 +416,7 @@ function App() {
           </section>
 
           {snapshot.pendingApprovals.length > 0 ? (
-            <section className="panel approvals-panel full-width">
+            <section className="approvals-panel full-width">
               <div className="section-heading inline">
                 <div>
                   <span className="eyebrow urgent">승인 대기</span>
@@ -400,56 +438,14 @@ function App() {
               </div>
             </section>
           ) : null}
-
-          <section className="panel activity-panel">
-            <div className="section-heading inline">
-              <div>
-                <span className="eyebrow">활동</span>
-                <h2>최근 연결 및 작업</h2>
-              </div>
-            </div>
-            {snapshot.activities.length === 0 ? (
-              <div className="empty-state">아직 기록된 작업이 없습니다.</div>
-            ) : (
-              <ol className="activity-list">
-                {snapshot.activities.slice(0, 12).map((activity) => (
-                  <li key={activity.id}>
-                    <i className={activity.success === false ? "failed" : activity.success ? "succeeded" : ""} />
-                    <div><strong>{activity.title}</strong><span>{activity.detail}</span></div>
-                    <time>{formatDate(activity.at)}</time>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-
-          <section className="panel capabilities-panel">
-            <div className="section-heading inline">
-              <div>
-                <span className="eyebrow">Capabilities</span>
-                <h2>이 Connector가 지원하는 작업</h2>
-              </div>
-            </div>
-            <div className="capability-chips">
-              {snapshot.capabilities.map((capability) => <span key={capability}>{actionLabel(capability)}</span>)}
-            </div>
-            <div className="boundary-note">
-              <strong>안전 경계</strong>
-              <p>Raw shell과 debugger 포트는 노출하지 않습니다. 보안 데스크톱, UAC, macOS 개인정보 보호 창은 사용자가 직접 처리해야 합니다.</p>
-            </div>
-            <button
-              className="destructive-link"
-              onClick={() => {
-                if (!window.confirm("이 PC의 로컬 연결 자격 증명을 삭제할까요? Termes에서 완전히 폐기하려면 웹의 Devices 화면에서도 연결을 해제하세요.")) return;
-                void run("forget", () => invokeSnapshot("forget_connector")).catch(() => undefined);
-              }}
-            >
-              이 PC에서 연결 정보 삭제
-            </button>
-          </section>
         </div>
       )}
+
     </main>
+    {activityOpen ? (
+      <ActivityMonitor activities={snapshot.activities} onClose={closeActivity} />
+    ) : null}
+    </>
   );
 }
 
@@ -469,6 +465,90 @@ function ApprovalCard({ approval, onDecision }: { approval: PendingApproval; onD
         <button className="primary-button compact" onClick={() => onDecision(true)}>이번 작업 허용</button>
       </div>
     </article>
+  );
+}
+
+function ActivityMonitor({ activities, onClose }: { activities: ActivityEntry[]; onClose: () => void }) {
+  React.useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div
+      className="activity-overlay"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      role="presentation"
+    >
+      <section
+        className="activity-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="activity-dialog-title"
+        onKeyDown={handleKeyDown}
+      >
+        <div className="activity-dialog-header">
+          <div>
+            <span className="eyebrow">모니터링</span>
+            <h2 id="activity-dialog-title">활동 기록</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="활동 기록 닫기" autoFocus>
+            <X aria-hidden="true" size={17} />
+          </button>
+        </div>
+        <div className="activity-summary">
+          <span><i />현재 세션 · {activities.length}건</span>
+          <small>실시간 업데이트</small>
+        </div>
+        {activities.length === 0 ? (
+          <div className="empty-state">아직 기록된 작업이 없습니다.</div>
+        ) : (
+          <ol className="activity-list" tabIndex={0} aria-label="활동 기록 목록">
+            {activities.map((activity) => {
+              const status = activity.success === false ? "실패" : activity.success ? "성공" : "정보";
+              const tone = activity.success === false ? "failed" : activity.success ? "succeeded" : "";
+              return (
+                <li key={activity.id}>
+                  <i className={tone} aria-hidden="true" />
+                  <div className="activity-copy"><strong>{activity.title}</strong><span>{activity.detail}</span></div>
+                  <div className="activity-meta">
+                    <span className={`activity-status ${tone}`}>{status}</span>
+                    <time>{formatDate(activity.at)}</time>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </section>
+    </div>
   );
 }
 

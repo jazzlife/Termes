@@ -1,0 +1,3101 @@
+{
+  "version": "2.14",
+  "children": [
+    {
+      "type": "frame",
+      "id": "bi8Au",
+      "x": 0,
+      "y": 0,
+      "name": "Cover",
+      "context": "File operating manual: owner, status, version, scope, links.",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 800,
+      "height": 360,
+      "fill": "$surface-app",
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "Gpzme",
+          "name": "CoverProduct",
+          "fill": "$accent",
+          "content": "TERMES CONNECTOR",
+          "fontFamily": "$font-ui",
+          "fontSize": 11,
+          "fontWeight": "750",
+          "letterSpacing": 1.6
+        },
+        {
+          "type": "text",
+          "id": "FPN0q",
+          "name": "CoverTitle",
+          "fill": "$text-primary",
+          "content": "Compact connector & activity monitor",
+          "fontFamily": "$font-ui",
+          "fontSize": 30,
+          "fontWeight": "700",
+          "letterSpacing": -1
+        },
+        {
+          "type": "text",
+          "id": "DZ12C",
+          "name": "CoverOwner",
+          "fill": "$text-secondary",
+          "content": "Owner  ·  Termes product engineering",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "UPHZj",
+          "name": "CoverStatus",
+          "fill": "$text-secondary",
+          "content": "Status  ·  Ready for build",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "HUiBV",
+          "name": "CoverVersion",
+          "fill": "$text-muted",
+          "content": "Version  ·  1.0  /  Updated 2026-07-30",
+          "fontFamily": "$font-mono",
+          "fontSize": 12,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "nBo6q",
+          "name": "CoverScope",
+          "fill": "$text-secondary",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "In  ·  Connected main screen, activity monitor dialog\nOut  ·  Pairing flow, backend activity persistence, capability catalog",
+          "lineHeight": 1.55,
+          "fontFamily": "$font-ui",
+          "fontSize": 12,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "iLQfN",
+      "x": 896,
+      "y": 0,
+      "name": "Connector / Connected / Desktop Compact",
+      "context": "Primary connected-state window. Shows connection identity, local controls, and permissions. Activity details open on demand from the header.",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 960,
+      "height": 640,
+      "fill": "$surface-app",
+      "layout": "vertical",
+      "padding": [
+        0,
+        32,
+        28,
+        32
+      ],
+      "children": [
+        {
+          "type": "frame",
+          "id": "H8JGr6",
+          "name": "MainTopbar",
+          "context": "Persistent app identity and global connection/activity controls.",
+          "width": "fill_container",
+          "height": 76,
+          "stroke": "$border-subtle",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "BFvwD",
+              "name": "ConnectorBrand",
+              "gap": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "Lk3Z5",
+                  "name": "TermesLogo",
+                  "fill": {
+                    "type": "image",
+                    "enabled": true,
+                    "url": "../apps/desktop-connector/public/termes-icon.png",
+                    "mode": "fit"
+                  },
+                  "width": 36,
+                  "height": 36
+                },
+                {
+                  "type": "frame",
+                  "id": "LX2mN",
+                  "name": "ConnectorBrandCopy",
+                  "layout": "vertical",
+                  "gap": 3,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Qp2bb",
+                      "name": "ConnectorTitle",
+                      "fill": "$text-primary",
+                      "content": "Termes Connector",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "IUmKp",
+                      "name": "ConnectorPlatforms",
+                      "fill": "$text-muted",
+                      "content": "WINDOWS · MACOS",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 9,
+                      "fontWeight": "650",
+                      "letterSpacing": 1
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "N36RYr",
+              "name": "TopbarActions",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "q6EEG",
+                  "name": "ActivityLogButton",
+                  "context": "Opens the activity monitor dialog. Keyboard: Enter/Space. Focus returns here when dialog closes.",
+                  "metadata": {
+                    "type": "interactive",
+                    "testId": "activity-log-button",
+                    "analytics": {
+                      "event": "connector.activity_open"
+                    },
+                    "aria": {
+                      "role": "button",
+                      "label": "활동 기록 열기"
+                    }
+                  },
+                  "height": 44,
+                  "fill": "$surface-panel",
+                  "cornerRadius": 9,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "gap": 8,
+                  "padding": [
+                    0,
+                    13
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "zvmM5",
+                      "name": "ActivityLogIcon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "activity",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "c2XvVP",
+                      "name": "ActivityLogLabel",
+                      "fill": "$text-primary",
+                      "content": "활동 기록",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "E5t5AP",
+                  "name": "ConnectionStatus",
+                  "context": "Read-only semantic connection state; color is reinforced by text.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "connection-status"
+                  },
+                  "height": 36,
+                  "fill": "$accent-soft",
+                  "cornerRadius": 18,
+                  "stroke": "$accent",
+                  "strokeWidth": 1,
+                  "gap": 8,
+                  "padding": [
+                    0,
+                    12
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "ellipse",
+                      "id": "QVi7q",
+                      "name": "OnlineIndicator",
+                      "fill": "$accent",
+                      "width": 7,
+                      "height": 7
+                    },
+                    {
+                      "type": "text",
+                      "id": "ZlKyH",
+                      "name": "OnlineLabel",
+                      "fill": "$accent",
+                      "content": "온라인",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "zXD0C",
+          "name": "ConnectedWorkspace",
+          "context": "Compact two-zone workspace without capability or activity cards.",
+          "width": "fill_container",
+          "height": "fill_container",
+          "padding": [
+            22,
+            0,
+            0,
+            0
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "puZNl",
+              "name": "ConnectionPane",
+              "context": "Primary connection identity and controls. Destructive credential removal remains scoped to this pane.",
+              "width": 330,
+              "height": "fill_container",
+              "stroke": "$border-subtle",
+              "strokeWidth": {
+                "right": 1
+              },
+              "layout": "vertical",
+              "gap": 16,
+              "padding": [
+                4,
+                28,
+                0,
+                0
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "FPfgC",
+                  "name": "CurrentConnectionEyebrow",
+                  "fill": "$accent",
+                  "content": "현재 연결",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "750",
+                  "letterSpacing": 1.3
+                },
+                {
+                  "type": "frame",
+                  "id": "mFSUj",
+                  "name": "DeviceHeadingRow",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "d2jYRA",
+                      "name": "DeviceName",
+                      "fill": "$text-primary",
+                      "content": "Jazzlife’s MacBook Pro",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 22,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.7
+                    },
+                    {
+                      "type": "frame",
+                      "id": "pAjgh",
+                      "name": "PlatformBadge",
+                      "height": 28,
+                      "fill": "$surface-panel",
+                      "cornerRadius": 7,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "padding": [
+                        0,
+                        9
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "BCcEW",
+                          "name": "PlatformLabel",
+                          "fill": "$text-secondary",
+                          "content": "macOS",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "U7d1Kc",
+                  "name": "ConnectionIdentityList",
+                  "context": "Displays the current workspace, project, and abbreviated connector identifier.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "connection-identity-list"
+                  },
+                  "width": "fill_container",
+                  "stroke": "$border-subtle",
+                  "strokeWidth": {
+                    "top": 1
+                  },
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "JTtIu",
+                      "name": "WorkspaceIdentityRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RhFW2",
+                          "name": "WorkspaceLabel",
+                          "fill": "$text-muted",
+                          "content": "Workspace",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "AHPG1",
+                          "name": "WorkspaceValue",
+                          "fill": "$text-secondary",
+                          "content": "TURTLE-LAB",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 10,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "odPIk",
+                      "name": "ProjectIdentityRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "F1mLHy",
+                          "name": "ProjectLabel",
+                          "fill": "$text-muted",
+                          "content": "Project",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "pSAhf",
+                          "name": "ProjectValue",
+                          "fill": "$text-secondary",
+                          "content": "Termes",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "650"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "k4p6vI",
+                      "name": "ConnectorIdentityRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "fW30s",
+                          "name": "ConnectorIdLabel",
+                          "fill": "$text-muted",
+                          "content": "Connector ID",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "RNBzd",
+                          "name": "ConnectorIdValue",
+                          "fill": "$text-secondary",
+                          "content": "cn_01JZ7K…",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 10,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "nX5Im",
+                  "name": "ConnectionActions",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "qb2ya",
+                      "name": "DisconnectButton",
+                      "context": "Stops the outbound connector session while preserving pairing.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "disconnect-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "연결 끊기"
+                        }
+                      },
+                      "height": 44,
+                      "fill": "$surface-panel",
+                      "cornerRadius": 9,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "padding": [
+                        0,
+                        14
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "KQ5Ir",
+                          "name": "DisconnectLabel",
+                          "fill": "$text-primary",
+                          "content": "연결 끊기",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xQYDM",
+                      "name": "EmergencyStopButton",
+                      "context": "Rejects pending work and closes the outbound session after confirmation.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "emergency-stop-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "즉시 중단"
+                        }
+                      },
+                      "height": 44,
+                      "fill": "$surface-muted",
+                      "cornerRadius": 9,
+                      "stroke": "$danger",
+                      "strokeWidth": 1,
+                      "padding": [
+                        0,
+                        14
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Z8wsP",
+                          "name": "EmergencyStopLabel",
+                          "fill": "$danger",
+                          "content": "즉시 중단",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "sin4n",
+                  "name": "AutoObserveToggle",
+                  "context": "Toggles automatic approval for read-only inspection only; control actions still require confirmation.",
+                  "metadata": {
+                    "type": "interactive",
+                    "testId": "auto-observe-toggle",
+                    "analytics": {
+                      "event": "connector.auto_observe_change"
+                    },
+                    "aria": {
+                      "role": "switch",
+                      "label": "읽기 전용 분석 자동 허용"
+                    }
+                  },
+                  "width": "fill_container",
+                  "gap": 10,
+                  "padding": [
+                    12,
+                    0
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "g2k3jG",
+                      "name": "ToggleTrackOn",
+                      "width": 34,
+                      "height": 20,
+                      "fill": "$accent",
+                      "cornerRadius": 10,
+                      "padding": 2,
+                      "justifyContent": "end",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "MyxWG",
+                          "name": "ToggleThumb",
+                          "fill": "$surface-app",
+                          "width": 16,
+                          "height": 16
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "F35ZY",
+                      "name": "AutoObserveCopy",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 3,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "J4iRlJ",
+                          "name": "AutoObserveTitle",
+                          "fill": "$text-primary",
+                          "content": "읽기 전용 분석 자동 허용",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10.5,
+                          "fontWeight": "650"
+                        },
+                        {
+                          "type": "text",
+                          "id": "pSrIf",
+                          "name": "AutoObserveDescription",
+                          "fill": "$text-muted",
+                          "content": "제어 작업은 항상 확인합니다.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "cchww",
+                  "name": "ForgetConnectionButton",
+                  "context": "Deletes local connector credentials and pairing settings after a destructive confirmation. It does not clear activity history.",
+                  "metadata": {
+                    "type": "interactive",
+                    "testId": "forget-connection-button",
+                    "analytics": {
+                      "event": "connector.forget_confirm_open"
+                    },
+                    "aria": {
+                      "role": "button",
+                      "label": "이 PC에서 연결 정보 삭제"
+                    }
+                  },
+                  "height": 44,
+                  "gap": 7,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "CGyrU",
+                      "name": "ForgetConnectionIcon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "unlink",
+                      "library": "lucide",
+                      "fill": "$danger"
+                    },
+                    {
+                      "type": "text",
+                      "id": "tO53F",
+                      "name": "ForgetConnectionLabel",
+                      "fill": "$danger",
+                      "content": "이 PC에서 연결 정보 삭제",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 10,
+                      "fontWeight": "650"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "t9UK1O",
+              "name": "PermissionsPane",
+              "context": "Local OS permission status and contextual request/settings actions.",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 14,
+              "padding": [
+                4,
+                0,
+                0,
+                28
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "OmW9D",
+                  "name": "PermissionsHeader",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "gfto5",
+                      "name": "PermissionsHeaderCopy",
+                      "layout": "vertical",
+                      "gap": 5,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "y7duN8",
+                          "name": "PermissionsEyebrow",
+                          "fill": "$accent",
+                          "content": "로컬 권한",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9,
+                          "fontWeight": "750",
+                          "letterSpacing": 1.3
+                        },
+                        {
+                          "type": "text",
+                          "id": "Yf8SR",
+                          "name": "PermissionsTitle",
+                          "fill": "$text-primary",
+                          "content": "PC 접근 범위",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 18,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.4
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XsxAy",
+                      "name": "RefreshPermissionsButton",
+                      "context": "Refreshes OS permission state without changing permissions.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "refresh-permissions-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "권한 상태 새로고침"
+                        }
+                      },
+                      "height": 44,
+                      "cornerRadius": 8,
+                      "gap": 7,
+                      "padding": [
+                        0,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "hnwS6",
+                          "name": "RefreshIcon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "refresh-cw",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "lfJiB",
+                          "name": "RefreshLabel",
+                          "fill": "$text-secondary",
+                          "content": "새로고침",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "650"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "G31wGX",
+                  "name": "PermissionStatusList",
+                  "context": "Four local permission rows. Actions appear only when user intervention is required.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "permission-status-list"
+                  },
+                  "width": "fill_container",
+                  "stroke": "$border-subtle",
+                  "strokeWidth": {
+                    "top": 1
+                  },
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "WN0t8",
+                      "name": "AccessibilityPermissionRow",
+                      "width": "fill_container",
+                      "height": 78,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "dtTG9",
+                          "name": "AccessibilityStatusDot",
+                          "fill": "$accent",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "l9bWZ",
+                          "name": "AccessibilityPermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "VWR6E",
+                              "name": "AccessibilityPermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "화면 요소 분석",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "KBfsR",
+                              "name": "AccessibilityPermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "앱 구조와 손쉬운 사용 트리를 읽습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "gE2fr",
+                          "name": "AccessibilityPermissionStatus",
+                          "fill": "$accent",
+                          "content": "허용됨",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "750"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "F82zEg",
+                      "name": "ScreenCapturePermissionRow",
+                      "width": "fill_container",
+                      "height": 78,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "a1d9Rk",
+                          "name": "ScreenCaptureStatusDot",
+                          "fill": "$accent",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "BH6ID",
+                          "name": "ScreenCapturePermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "s3WTZ",
+                              "name": "ScreenCapturePermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "화면 캡처",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "EF1gE",
+                              "name": "ScreenCapturePermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "작업 전후 화면을 캡처해 결과를 검증합니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "fjJpI",
+                          "name": "ScreenCapturePermissionStatus",
+                          "fill": "$accent",
+                          "content": "허용됨",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "750"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "fbnr3",
+                      "name": "InputControlPermissionRow",
+                      "width": "fill_container",
+                      "height": 86,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "OS4vp",
+                          "name": "InputControlStatusDot",
+                          "fill": "$danger",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Yxly8",
+                          "name": "InputControlPermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "AdLYn",
+                              "name": "InputControlPermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "키보드와 포인터",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "VMVjI",
+                              "name": "InputControlPermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "승인된 클릭과 입력 작업을 수행합니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "v0YKfW",
+                          "name": "InputControlPermissionActions",
+                          "layout": "vertical",
+                          "gap": 7,
+                          "alignItems": "end",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "E5FpZH",
+                              "name": "InputControlPermissionStatus",
+                              "fill": "$danger",
+                              "content": "허용 필요",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "750"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "YTCUF",
+                              "name": "InputControlButtons",
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "B5xXdV",
+                                  "name": "RequestInputPermissionButton",
+                                  "context": "Requests the local input-control permission.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "request-input-permission",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "키보드와 포인터 권한 요청"
+                                    }
+                                  },
+                                  "fill": "$accent",
+                                  "content": "권한 요청",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "uTlOB",
+                                  "name": "OpenInputSettingsButton",
+                                  "context": "Opens the operating system permission settings for input control.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "open-input-settings",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "키보드와 포인터 권한 설정 열기"
+                                    }
+                                  },
+                                  "fill": "$text-secondary",
+                                  "content": "설정",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "650"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "GuMP0",
+                      "name": "ProcessInspectionPermissionRow",
+                      "width": "fill_container",
+                      "height": 78,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "OgZlE",
+                          "name": "ProcessInspectionStatusDot",
+                          "fill": "$text-muted",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "g1fzR",
+                          "name": "ProcessInspectionPermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "SduzK",
+                              "name": "ProcessInspectionPermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "프로세스와 진단",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "fFra5",
+                              "name": "ProcessInspectionPermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "실행 앱과 제한된 시스템 로그를 분석합니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "ltv6D",
+                          "name": "ProcessInspectionPermissionStatus",
+                          "fill": "$text-secondary",
+                          "content": "시스템 기본",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "750"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "C3yZpq",
+      "x": 1952,
+      "y": 0,
+      "name": "Connector / Activity Monitor / Desktop Compact",
+      "context": "Activity monitor dialog opened from the connected main window. Background remains visible but inert.",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 960,
+      "height": 640,
+      "fill": "$surface-app",
+      "layout": "vertical",
+      "padding": [
+        0,
+        32,
+        28,
+        32
+      ],
+      "children": [
+        {
+          "type": "frame",
+          "id": "v8Nzy",
+          "name": "MainTopbar",
+          "context": "Persistent app identity and global connection/activity controls.",
+          "width": "fill_container",
+          "height": 76,
+          "stroke": "$border-subtle",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "e21kq",
+              "name": "ConnectorBrand",
+              "gap": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "StTpO",
+                  "name": "TermesLogo",
+                  "fill": {
+                    "type": "image",
+                    "enabled": true,
+                    "url": "../apps/desktop-connector/public/termes-icon.png",
+                    "mode": "fit"
+                  },
+                  "width": 36,
+                  "height": 36
+                },
+                {
+                  "type": "frame",
+                  "id": "oCcLw",
+                  "name": "ConnectorBrandCopy",
+                  "layout": "vertical",
+                  "gap": 3,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sLZCD",
+                      "name": "ConnectorTitle",
+                      "fill": "$text-primary",
+                      "content": "Termes Connector",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "J0RsB",
+                      "name": "ConnectorPlatforms",
+                      "fill": "$text-muted",
+                      "content": "WINDOWS · MACOS",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 9,
+                      "fontWeight": "650",
+                      "letterSpacing": 1
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "mIIbs",
+              "name": "TopbarActions",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "jnDpy",
+                  "name": "ActivityLogButton",
+                  "context": "Opens the activity monitor dialog. Keyboard: Enter/Space. Focus returns here when dialog closes.",
+                  "metadata": {
+                    "type": "interactive",
+                    "testId": "activity-log-button",
+                    "analytics": {
+                      "event": "connector.activity_open"
+                    },
+                    "aria": {
+                      "role": "button",
+                      "label": "활동 기록 열기"
+                    }
+                  },
+                  "height": 44,
+                  "fill": "$surface-panel",
+                  "cornerRadius": 9,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "gap": 8,
+                  "padding": [
+                    0,
+                    13
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "Nwjt1",
+                      "name": "ActivityLogIcon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "activity",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "dJay9",
+                      "name": "ActivityLogLabel",
+                      "fill": "$text-primary",
+                      "content": "활동 기록",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "YLYMB",
+                  "name": "ConnectionStatus",
+                  "context": "Read-only semantic connection state; color is reinforced by text.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "connection-status"
+                  },
+                  "height": 36,
+                  "fill": "$accent-soft",
+                  "cornerRadius": 18,
+                  "stroke": "$accent",
+                  "strokeWidth": 1,
+                  "gap": 8,
+                  "padding": [
+                    0,
+                    12
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "ellipse",
+                      "id": "mGARb",
+                      "name": "OnlineIndicator",
+                      "fill": "$accent",
+                      "width": 7,
+                      "height": 7
+                    },
+                    {
+                      "type": "text",
+                      "id": "V90zv",
+                      "name": "OnlineLabel",
+                      "fill": "$accent",
+                      "content": "온라인",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "F2qoNj",
+          "name": "ConnectedWorkspace",
+          "context": "Compact two-zone workspace without capability or activity cards.",
+          "width": "fill_container",
+          "height": "fill_container",
+          "padding": [
+            22,
+            0,
+            0,
+            0
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "IPxFI",
+              "name": "ConnectionPane",
+              "context": "Primary connection identity and controls. Destructive credential removal remains scoped to this pane.",
+              "width": 330,
+              "height": "fill_container",
+              "stroke": "$border-subtle",
+              "strokeWidth": {
+                "right": 1
+              },
+              "layout": "vertical",
+              "gap": 16,
+              "padding": [
+                4,
+                28,
+                0,
+                0
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "LPCDG",
+                  "name": "CurrentConnectionEyebrow",
+                  "fill": "$accent",
+                  "content": "현재 연결",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "750",
+                  "letterSpacing": 1.3
+                },
+                {
+                  "type": "frame",
+                  "id": "Uj530",
+                  "name": "DeviceHeadingRow",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "q08SmP",
+                      "name": "DeviceName",
+                      "fill": "$text-primary",
+                      "content": "Jazzlife’s MacBook Pro",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 22,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.7
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LHW4Y",
+                      "name": "PlatformBadge",
+                      "height": 28,
+                      "fill": "$surface-panel",
+                      "cornerRadius": 7,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "padding": [
+                        0,
+                        9
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "h8paM7",
+                          "name": "PlatformLabel",
+                          "fill": "$text-secondary",
+                          "content": "macOS",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "OrY2i",
+                  "name": "ConnectionIdentityList",
+                  "context": "Displays the current workspace, project, and abbreviated connector identifier.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "connection-identity-list"
+                  },
+                  "width": "fill_container",
+                  "stroke": "$border-subtle",
+                  "strokeWidth": {
+                    "top": 1
+                  },
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "eI6SN",
+                      "name": "WorkspaceIdentityRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "j4NuC",
+                          "name": "WorkspaceLabel",
+                          "fill": "$text-muted",
+                          "content": "Workspace",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "OSylR",
+                          "name": "WorkspaceValue",
+                          "fill": "$text-secondary",
+                          "content": "TURTLE-LAB",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 10,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "knP30",
+                      "name": "ProjectIdentityRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "JnHHX",
+                          "name": "ProjectLabel",
+                          "fill": "$text-muted",
+                          "content": "Project",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "JVuon",
+                          "name": "ProjectValue",
+                          "fill": "$text-secondary",
+                          "content": "Termes",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "650"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xMTvK",
+                      "name": "ConnectorIdentityRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "GjFzE",
+                          "name": "ConnectorIdLabel",
+                          "fill": "$text-muted",
+                          "content": "Connector ID",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "n0bkoz",
+                          "name": "ConnectorIdValue",
+                          "fill": "$text-secondary",
+                          "content": "cn_01JZ7K…",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 10,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "GDD9v",
+                  "name": "ConnectionActions",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "c7ZbjK",
+                      "name": "DisconnectButton",
+                      "context": "Stops the outbound connector session while preserving pairing.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "disconnect-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "연결 끊기"
+                        }
+                      },
+                      "height": 44,
+                      "fill": "$surface-panel",
+                      "cornerRadius": 9,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "padding": [
+                        0,
+                        14
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "J9xOG",
+                          "name": "DisconnectLabel",
+                          "fill": "$text-primary",
+                          "content": "연결 끊기",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sCNuN",
+                      "name": "EmergencyStopButton",
+                      "context": "Rejects pending work and closes the outbound session after confirmation.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "emergency-stop-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "즉시 중단"
+                        }
+                      },
+                      "height": 44,
+                      "fill": "$surface-muted",
+                      "cornerRadius": 9,
+                      "stroke": "$danger",
+                      "strokeWidth": 1,
+                      "padding": [
+                        0,
+                        14
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "zDZWg",
+                          "name": "EmergencyStopLabel",
+                          "fill": "$danger",
+                          "content": "즉시 중단",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "gmq9e",
+                  "name": "AutoObserveToggle",
+                  "context": "Toggles automatic approval for read-only inspection only; control actions still require confirmation.",
+                  "metadata": {
+                    "type": "interactive",
+                    "testId": "auto-observe-toggle",
+                    "analytics": {
+                      "event": "connector.auto_observe_change"
+                    },
+                    "aria": {
+                      "role": "switch",
+                      "label": "읽기 전용 분석 자동 허용"
+                    }
+                  },
+                  "width": "fill_container",
+                  "gap": 10,
+                  "padding": [
+                    12,
+                    0
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "e9mLt5",
+                      "name": "ToggleTrackOn",
+                      "width": 34,
+                      "height": 20,
+                      "fill": "$accent",
+                      "cornerRadius": 10,
+                      "padding": 2,
+                      "justifyContent": "end",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "XXOBO",
+                          "name": "ToggleThumb",
+                          "fill": "$surface-app",
+                          "width": 16,
+                          "height": 16
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "AFICQ",
+                      "name": "AutoObserveCopy",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 3,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xJ55I",
+                          "name": "AutoObserveTitle",
+                          "fill": "$text-primary",
+                          "content": "읽기 전용 분석 자동 허용",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10.5,
+                          "fontWeight": "650"
+                        },
+                        {
+                          "type": "text",
+                          "id": "p3LiA7",
+                          "name": "AutoObserveDescription",
+                          "fill": "$text-muted",
+                          "content": "제어 작업은 항상 확인합니다.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "v7hVsY",
+                  "name": "ForgetConnectionButton",
+                  "context": "Deletes local connector credentials and pairing settings after a destructive confirmation. It does not clear activity history.",
+                  "metadata": {
+                    "type": "interactive",
+                    "testId": "forget-connection-button",
+                    "analytics": {
+                      "event": "connector.forget_confirm_open"
+                    },
+                    "aria": {
+                      "role": "button",
+                      "label": "이 PC에서 연결 정보 삭제"
+                    }
+                  },
+                  "height": 44,
+                  "gap": 7,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "ZqPLG",
+                      "name": "ForgetConnectionIcon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "unlink",
+                      "library": "lucide",
+                      "fill": "$danger"
+                    },
+                    {
+                      "type": "text",
+                      "id": "V8213K",
+                      "name": "ForgetConnectionLabel",
+                      "fill": "$danger",
+                      "content": "이 PC에서 연결 정보 삭제",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 10,
+                      "fontWeight": "650"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "o4u9GJ",
+              "name": "PermissionsPane",
+              "context": "Local OS permission status and contextual request/settings actions.",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 14,
+              "padding": [
+                4,
+                0,
+                0,
+                28
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "XzdFr",
+                  "name": "PermissionsHeader",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "PzNXl",
+                      "name": "PermissionsHeaderCopy",
+                      "layout": "vertical",
+                      "gap": 5,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "pbU5u",
+                          "name": "PermissionsEyebrow",
+                          "fill": "$accent",
+                          "content": "로컬 권한",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9,
+                          "fontWeight": "750",
+                          "letterSpacing": 1.3
+                        },
+                        {
+                          "type": "text",
+                          "id": "FwfTj",
+                          "name": "PermissionsTitle",
+                          "fill": "$text-primary",
+                          "content": "PC 접근 범위",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 18,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.4
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Ix5yQ",
+                      "name": "RefreshPermissionsButton",
+                      "context": "Refreshes OS permission state without changing permissions.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "refresh-permissions-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "권한 상태 새로고침"
+                        }
+                      },
+                      "height": 44,
+                      "cornerRadius": 8,
+                      "gap": 7,
+                      "padding": [
+                        0,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "BkBJb",
+                          "name": "RefreshIcon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "refresh-cw",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "ko1q4",
+                          "name": "RefreshLabel",
+                          "fill": "$text-secondary",
+                          "content": "새로고침",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "650"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Z6Gon",
+                  "name": "PermissionStatusList",
+                  "context": "Four local permission rows. Actions appear only when user intervention is required.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "permission-status-list"
+                  },
+                  "width": "fill_container",
+                  "stroke": "$border-subtle",
+                  "strokeWidth": {
+                    "top": 1
+                  },
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "qtfzQ",
+                      "name": "AccessibilityPermissionRow",
+                      "width": "fill_container",
+                      "height": 78,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "e80E2",
+                          "name": "AccessibilityStatusDot",
+                          "fill": "$accent",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MRsjK",
+                          "name": "AccessibilityPermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ZvtFY",
+                              "name": "AccessibilityPermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "화면 요소 분석",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "KwWTa",
+                              "name": "AccessibilityPermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "앱 구조와 손쉬운 사용 트리를 읽습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "gWrCS",
+                          "name": "AccessibilityPermissionStatus",
+                          "fill": "$accent",
+                          "content": "허용됨",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "750"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "HO1bz",
+                      "name": "ScreenCapturePermissionRow",
+                      "width": "fill_container",
+                      "height": 78,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "sshOj",
+                          "name": "ScreenCaptureStatusDot",
+                          "fill": "$accent",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "evKUv",
+                          "name": "ScreenCapturePermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "w7v83V",
+                              "name": "ScreenCapturePermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "화면 캡처",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "FeebL",
+                              "name": "ScreenCapturePermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "작업 전후 화면을 캡처해 결과를 검증합니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "JtgFu",
+                          "name": "ScreenCapturePermissionStatus",
+                          "fill": "$accent",
+                          "content": "허용됨",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "750"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "VL5EX",
+                      "name": "InputControlPermissionRow",
+                      "width": "fill_container",
+                      "height": 86,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "c2gcO",
+                          "name": "InputControlStatusDot",
+                          "fill": "$danger",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "SxY6X",
+                          "name": "InputControlPermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "P13un",
+                              "name": "InputControlPermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "키보드와 포인터",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "en1wu",
+                              "name": "InputControlPermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "승인된 클릭과 입력 작업을 수행합니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "J6MrN2",
+                          "name": "InputControlPermissionActions",
+                          "layout": "vertical",
+                          "gap": 7,
+                          "alignItems": "end",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wXGpI",
+                              "name": "InputControlPermissionStatus",
+                              "fill": "$danger",
+                              "content": "허용 필요",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "750"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "eVfOe",
+                              "name": "InputControlButtons",
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "FzEiN",
+                                  "name": "RequestInputPermissionButton",
+                                  "context": "Requests the local input-control permission.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "request-input-permission",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "키보드와 포인터 권한 요청"
+                                    }
+                                  },
+                                  "fill": "$accent",
+                                  "content": "권한 요청",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "FPNpa",
+                                  "name": "OpenInputSettingsButton",
+                                  "context": "Opens the operating system permission settings for input control.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "open-input-settings",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "키보드와 포인터 권한 설정 열기"
+                                    }
+                                  },
+                                  "fill": "$text-secondary",
+                                  "content": "설정",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "650"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "g0q8a0",
+                      "name": "ProcessInspectionPermissionRow",
+                      "width": "fill_container",
+                      "height": 78,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "osWQf",
+                          "name": "ProcessInspectionStatusDot",
+                          "fill": "$text-muted",
+                          "width": 8,
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "HHluf",
+                          "name": "ProcessInspectionPermissionCopy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "I506S",
+                              "name": "ProcessInspectionPermissionTitle",
+                              "fill": "$text-primary",
+                              "content": "프로세스와 진단",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "x0eCF",
+                              "name": "ProcessInspectionPermissionDescription",
+                              "fill": "$text-muted",
+                              "content": "실행 앱과 제한된 시스템 로그를 분석합니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "PWMsj",
+                          "name": "ProcessInspectionPermissionStatus",
+                          "fill": "$text-secondary",
+                          "content": "시스템 기본",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9.5,
+                          "fontWeight": "750"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "uDAsp",
+          "layoutPosition": "absolute",
+          "x": 0,
+          "y": 0,
+          "name": "ActivityMonitorOverlay",
+          "context": "Modal backdrop. The underlying connector workspace is inert while open.",
+          "metadata": {
+            "type": "interactive",
+            "testId": "activity-monitor-overlay",
+            "aria": {
+              "role": "presentation"
+            }
+          },
+          "width": 960,
+          "height": 640,
+          "fill": "$overlay",
+          "layout": "vertical",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "a3cZH",
+              "name": "ActivityMonitorDialog",
+              "context": "Monitoring dialog for recent connection and command activity. Closes with Escape, close button, or backdrop click.",
+              "metadata": {
+                "type": "interactive",
+                "testId": "activity-monitor-dialog",
+                "aria": {
+                  "role": "dialog",
+                  "label": "활동 기록"
+                }
+              },
+              "width": 680,
+              "height": 510,
+              "fill": "$surface-panel",
+              "cornerRadius": 14,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 16,
+              "padding": [
+                24,
+                26
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "bDD0x",
+                  "name": "ActivityMonitorHeader",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "z5IAa",
+                      "name": "ActivityMonitorTitleCopy",
+                      "layout": "vertical",
+                      "gap": 5,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ofyj2",
+                          "name": "ActivityMonitorEyebrow",
+                          "fill": "$accent",
+                          "content": "모니터링",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 9,
+                          "fontWeight": "750",
+                          "letterSpacing": 1.3
+                        },
+                        {
+                          "type": "text",
+                          "id": "YqHjR",
+                          "name": "ActivityMonitorTitle",
+                          "fill": "$text-primary",
+                          "content": "활동 기록",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 20,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.5
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "v17Pg",
+                      "name": "CloseActivityMonitorButton",
+                      "context": "Closes the dialog and returns focus to the Activity Log button.",
+                      "metadata": {
+                        "type": "interactive",
+                        "testId": "close-activity-monitor-button",
+                        "aria": {
+                          "role": "button",
+                          "label": "활동 기록 닫기"
+                        }
+                      },
+                      "width": 44,
+                      "height": 44,
+                      "fill": "$surface-muted",
+                      "cornerRadius": 9,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "HG9J6",
+                          "name": "CloseActivityMonitorIcon",
+                          "width": 17,
+                          "height": 17,
+                          "icon": "x",
+                          "library": "lucide",
+                          "fill": "$text-secondary"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "bWq5y",
+                  "name": "ActivityMonitorSummary",
+                  "context": "Shows current session activity count and snapshot recency.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "activity-monitor-summary"
+                  },
+                  "width": "fill_container",
+                  "height": 34,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "F1F4P",
+                      "name": "ActivityCountGroup",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "WfU9f",
+                          "name": "ActivityLiveIndicator",
+                          "fill": "$accent",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "text",
+                          "id": "sD5Rj",
+                          "name": "ActivityCountLabel",
+                          "fill": "$text-secondary",
+                          "content": "현재 세션 · 7건",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 10,
+                          "fontWeight": "650"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "k0ecUv",
+                      "name": "ActivityUpdatedAt",
+                      "fill": "$text-muted",
+                      "content": "방금 업데이트",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 9.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wbSS9",
+                  "name": "ActivityTimeline",
+                  "context": "Reverse-chronological connector activity list. Each row exposes semantic success, failure, or neutral state and timestamp.",
+                  "metadata": {
+                    "type": "display",
+                    "testId": "activity-timeline"
+                  },
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "stroke": "$border-subtle",
+                  "strokeWidth": {
+                    "top": 1
+                  },
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "jo86p",
+                      "name": "ActivityRow01",
+                      "width": "fill_container",
+                      "height": 48,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "H6L4sy",
+                          "name": "ActivityRow01Status",
+                          "fill": "$accent",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "d1Suw",
+                          "name": "ActivityRow01Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Z8pdo7",
+                              "name": "ActivityRow01Title",
+                              "fill": "$text-primary",
+                              "content": "화면 캡처 완료",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "BAYs7",
+                              "name": "ActivityRow01Detail",
+                              "fill": "$text-muted",
+                              "content": "요청된 화면을 캡처하고 결과를 전송했습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "bGTnC",
+                          "name": "ActivityRow01Time",
+                          "fill": "$text-muted",
+                          "content": "성공 · 오후 3:42:18",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BrM5Y",
+                      "name": "ActivityRow02",
+                      "width": "fill_container",
+                      "height": 48,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "UHL8h",
+                          "name": "ActivityRow02Status",
+                          "fill": "$text-muted",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "LQpBL",
+                          "name": "ActivityRow02Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "AabYl",
+                              "name": "ActivityRow02Title",
+                              "fill": "$text-primary",
+                              "content": "작업 승인",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "PkIU7",
+                              "name": "ActivityRow02Detail",
+                              "fill": "$text-muted",
+                              "content": "화면 캡처 요청을 이번 작업에 한해 허용했습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "vcjCD",
+                          "name": "ActivityRow02Time",
+                          "fill": "$text-muted",
+                          "content": "정보 · 오후 3:42:15",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FBTLU",
+                      "name": "ActivityRow03",
+                      "width": "fill_container",
+                      "height": 48,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "OhCRM",
+                          "name": "ActivityRow03Status",
+                          "fill": "$accent",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "YPk1L",
+                          "name": "ActivityRow03Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "MJCGB",
+                              "name": "ActivityRow03Title",
+                              "fill": "$text-primary",
+                              "content": "온라인 연결",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "zMCp9",
+                              "name": "ActivityRow03Detail",
+                              "fill": "$text-muted",
+                              "content": "Termes에 대한 아웃바운드 세션이 연결되었습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "V56NpA",
+                          "name": "ActivityRow03Time",
+                          "fill": "$text-muted",
+                          "content": "성공 · 오후 3:41:52",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "kGJvQ",
+                      "name": "ActivityRow04",
+                      "width": "fill_container",
+                      "height": 48,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "KLVbm",
+                          "name": "ActivityRow04Status",
+                          "fill": "$danger",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Ukufy",
+                          "name": "ActivityRow04Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "D9yV4",
+                              "name": "ActivityRow04Title",
+                              "fill": "$text-primary",
+                              "content": "키보드 입력 실패",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "x5jc6",
+                              "name": "ActivityRow04Detail",
+                              "fill": "$text-muted",
+                              "content": "입력 제어 권한이 허용되지 않아 실행하지 못했습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "D7VBG",
+                          "name": "ActivityRow04Time",
+                          "fill": "$text-muted",
+                          "content": "실패 · 오후 3:38:04",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gjvaq",
+                      "name": "ActivityRow05",
+                      "width": "fill_container",
+                      "height": 48,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "c0Uvw",
+                          "name": "ActivityRow05Status",
+                          "fill": "$accent",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "b6w9H",
+                          "name": "ActivityRow05Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "CfQ9D",
+                              "name": "ActivityRow05Title",
+                              "fill": "$text-primary",
+                              "content": "프로세스 목록 확인",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "GSwel",
+                              "name": "ActivityRow05Detail",
+                              "fill": "$text-muted",
+                              "content": "실행 중인 프로세스 42개를 확인했습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "kus7i",
+                          "name": "ActivityRow05Time",
+                          "fill": "$text-muted",
+                          "content": "성공 · 오후 3:36:27",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "v2NdH",
+                      "name": "ActivityRow06",
+                      "width": "fill_container",
+                      "height": 48,
+                      "stroke": "$border-subtle",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "cLoNX",
+                          "name": "ActivityRow06Status",
+                          "fill": "$text-muted",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "STeMr",
+                          "name": "ActivityRow06Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "fLh11",
+                              "name": "ActivityRow06Title",
+                              "fill": "$text-primary",
+                              "content": "연결 끊김",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "z83KN",
+                              "name": "ActivityRow06Detail",
+                              "fill": "$text-muted",
+                              "content": "로컬 요청으로 이전 세션을 종료했습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "SlSuI",
+                          "name": "ActivityRow06Time",
+                          "fill": "$text-muted",
+                          "content": "정보 · 오후 3:35:10",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "s7qRQ",
+                      "name": "ActivityRow07",
+                      "width": "fill_container",
+                      "height": 48,
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "n17Vvh",
+                          "name": "ActivityRow07Status",
+                          "fill": "$accent",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
+                          "type": "frame",
+                          "id": "AVjb1",
+                          "name": "ActivityRow07Copy",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "QQzgd",
+                              "name": "ActivityRow07Title",
+                              "fill": "$text-primary",
+                              "content": "읽기 전용 분석 자동 허용",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "650"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ULmXI",
+                              "name": "ActivityRow07Detail",
+                              "fill": "$text-muted",
+                              "content": "읽기 전용 요청의 자동 승인 정책을 켰습니다.",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "c4uUVe",
+                          "name": "ActivityRow07Time",
+                          "fill": "$text-muted",
+                          "content": "성공 · 오후 3:34:41",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "note",
+      "id": "cxa9C",
+      "x": 2992,
+      "y": 0,
+      "name": "ActivityMonitorStateContract",
+      "context": "State contract annotation.",
+      "width": 360,
+      "height": 150,
+      "content": "STATE CONTRACT\nActivity button: default / hover / focus / pressed / disabled while loading.\nDialog: open / populated / empty. Empty copy: ‘아직 기록된 작업이 없습니다.’\nActivity rows: neutral / success / failure. Status is always text-supported, never color-only."
+    },
+    {
+      "type": "note",
+      "id": "U4pES",
+      "x": 2992,
+      "y": 170,
+      "name": "ActivityMonitorAccessibilityContract",
+      "context": "Accessibility contract annotation.",
+      "width": 360,
+      "height": 170,
+      "content": "ACCESSIBILITY CONTRACT\nFocus order: Close → timeline. On open, focus Close; on close, restore Activity button.\nEscape and backdrop click close the dialog.\nDialog role with label ‘활동 기록’.\nAll action targets are at least 44×44. Body text contrast meets WCAG AA in dark mode."
+    },
+    {
+      "type": "note",
+      "id": "PlBfX",
+      "x": 2992,
+      "y": 360,
+      "name": "ActivityMonitorMotionContract",
+      "context": "Motion contract annotation.",
+      "width": 360,
+      "height": 110,
+      "content": "MOTION CONTRACT\nBackdrop 120ms ease-out; dialog opacity + translateY(6→0) 140ms ease-out.\nRespect prefers-reduced-motion by removing translation and using opacity only."
+    },
+    {
+      "type": "note",
+      "id": "TAi3g",
+      "x": 2992,
+      "y": 490,
+      "name": "ActivityMonitorAnalyticsContract",
+      "context": "Analytics contract annotation.",
+      "width": 360,
+      "height": 105,
+      "content": "ANALYTICS EVENTS\nconnector.activity_open\nconnector.activity_close { method: close | escape | backdrop }\nconnector.forget_confirm_open remains in the connection pane."
+    },
+    {
+      "type": "note",
+      "id": "Mk29T",
+      "x": 3382,
+      "y": 0,
+      "name": "ActivityMonitorI18nContract",
+      "context": "Internationalization contract annotation.",
+      "width": 360,
+      "height": 130,
+      "content": "I18N NOTES\nActivity title/detail wrap or ellipsize independently; timestamps never wrap.\nAllow 30% label expansion. Dialog width stays bounded; timeline becomes scrollable when content exceeds available height."
+    },
+    {
+      "type": "note",
+      "id": "hmSC1",
+      "x": 3382,
+      "y": 150,
+      "name": "ActivityMonitorFlowContext",
+      "context": "Flow context annotation.",
+      "width": 360,
+      "height": 135,
+      "content": "FLOW CONTEXT\nConnected main window → Activity button → monitoring dialog → close → connected main window.\nNo route change and no activity deletion.\nForget Connection deletes credentials/settings, not activity entries, and remains in Connection Pane."
+    }
+  ],
+  "themes": {
+    "mode": [
+      "light",
+      "dark"
+    ]
+  },
+  "variables": {
+    "surface-app": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#F5F7F8",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#0B0D10",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "surface-panel": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#FFFFFF",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#11151A",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "surface-muted": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#EEF1F3",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#0E1216",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "border": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#D7DDE2",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#28313A",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "border-subtle": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#E8ECEF",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#20272E",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "text-primary": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#182027",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#E8EDF3",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "text-secondary": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#56636E",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#9BA8B5",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "text-muted": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#65727E",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#8A96A3",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "accent": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#168755",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#58E2A0",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "accent-soft": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#E2F4EA",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#143326",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "danger": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#C53E48",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#FF858D",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "font-ui": {
+      "type": "string",
+      "value": "Inter"
+    },
+    "font-mono": {
+      "type": "string",
+      "value": "Geist Mono"
+    },
+    "overlay": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#18202799",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#050608CC",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    }
+  },
+  "fileToken": "b0542c6d-d255-4bcc-ad3e-9419a63497e7"
+}
