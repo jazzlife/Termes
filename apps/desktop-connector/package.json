@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "vite build",
     "tauri": "tauri",
-    "build:native": "tauri build"
+    "build:native": "tauri build",
+    "build:macos:test": "bash scripts/build-macos-test-bundle.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
