@@ -47,7 +47,11 @@ jobs:
         run: pnpm --filter @termes/desktop-connector typecheck
       - name: Test connector native core
         run: cargo test --manifest-path apps/desktop-connector/src-tauri/Cargo.toml
-      - name: Build native test bundle
+      - name: Build signed macOS test bundle
+        if: runner.os == 'macOS'
+        run: pnpm --filter @termes/desktop-connector build:macos:test
+      - name: Build Windows test bundle
+        if: runner.os == 'Windows'
         run: pnpm --filter @termes/desktop-connector exec tauri build
       - name: Upload native test bundle
         uses: actions/upload-artifact@v4
