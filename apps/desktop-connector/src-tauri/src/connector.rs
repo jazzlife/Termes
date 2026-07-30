@@ -700,14 +700,17 @@ fn send_ack(
     accepted: bool,
     reason: Option<&str>,
 ) {
-    let _ = outbound.send(json!({
+    let mut message = json!({
         "type": "command.ack",
         "commandId": envelope.command_id,
         "sequence": envelope.sequence,
         "accepted": accepted,
-        "reason": reason,
         "acknowledgedAt": protocol_timestamp(Utc::now()),
-    }));
+    });
+    if let Some(reason) = reason {
+        message["reason"] = Value::String(reason.to_owned());
+    }
+    let _ = outbound.send(message);
 }
 
 fn redact_params(action: &str, params: &Value) -> Value {
@@ -766,6 +769,25 @@ mod tests {
         let timestamp = protocol_timestamp(Utc::now());
         assert!(timestamp.ends_with('Z'));
         assert!(!timestamp.contains("+00:00"));
+    }
+
+    #[test]
+    fn accepted_ack_omits_the_optional_reason_instead_of_sending_null() {
+        let (outbound, mut messages) = mpsc::unbounded_channel();
+        let envelope = CommandEnvelope {
+            protocol_version: PROTOCOL_VERSION,
+            command_id: "123e4567-e89b-12d3-a456-426614174000".to_owned(),
+            sequence: 4,
+            action: "macos.app.launch".to_owned(),
+            params: json!({ "appId": "com.apple.calculator" }),
+            deadline: Utc::now().to_rfc3339(),
+            request_hash: "test-request-hash".to_owned(),
+        };
+
+        send_ack(&outbound, &envelope, true, None);
+
+        let message = messages.try_recv().unwrap();
+        assert!(message.get("reason").is_none());
     }
 
     #[test]
