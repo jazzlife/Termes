@@ -11,8 +11,8 @@
 html, body, #root { min-height: 100%; margin: 0; }
 
 body {
-  min-width: 780px;
-  min-height: 620px;
+  min-width: 640px;
+  min-height: 0;
   background:
     radial-gradient(circle at 0 0, rgba(70, 229, 159, 0.08), transparent 27rem),
     radial-gradient(circle at 100% 25%, rgba(83, 124, 255, 0.07), transparent 31rem),
@@ -24,7 +24,7 @@ button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: 0.58; }
 button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 
-.app-shell { min-height: 100vh; padding: 0 32px 28px; }
+.app-shell { min-height: 100vh; padding: 0 24px; }
 .loading-shell { display: grid; place-content: center; justify-items: center; color: #82909f; }
 .loading-mark { width: 28px; height: 28px; border: 2px solid #27313a; border-top-color: #58e2a0; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -89,7 +89,7 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 .text-button { border: 0; padding: 0; color: #7fdcae; background: transparent; font-size: 11px; font-weight: 650; }
 .text-button:hover { color: #a2ebc4; }
 
-.connected-layout { max-width: 1120px; margin: 22px auto 0; display: grid; grid-template-columns: minmax(300px, 0.72fr) minmax(430px, 1.28fr); min-height: 496px; }
+.connected-layout { max-width: 1120px; margin: 22px auto 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 .connection-section, .permissions-section { min-width: 0; padding-top: 4px; }
 .connection-section { padding-right: 28px; border-right: 1px solid #20272e; }
 .permissions-section { padding-left: 28px; }
@@ -98,11 +98,11 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 .section-heading.inline { align-items: center; }
 .section-heading h1 { margin: 7px 0 0; font-size: 25px; letter-spacing: -0.04em; }
 .section-heading h2 { margin: 7px 0 0; font-size: 16px; letter-spacing: -0.025em; }
-.platform-badge { color: #a8b3bd; font-size: 11px; font-weight: 700; border: 1px solid #313a43; border-radius: 7px; padding: 6px 9px; background: #151a20; }
 .identity-grid { margin: 21px 0 0; display: grid; border-top: 1px solid #20272e; }
 .identity-grid > div { min-width: 0; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid #20272e; }
 .identity-grid dt { color: #64717d; font-size: 10px; }
 .identity-grid dd { overflow: hidden; text-overflow: ellipsis; margin: 0; color: #b8c2cc; white-space: nowrap; font-size: 10px; }
+.identity-grid .connector-id { overflow: visible; overflow-wrap: anywhere; text-align: right; text-overflow: clip; white-space: normal; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .connection-actions { display: flex; gap: 8px; margin: 18px 0 4px; }
 .policy-toggle { display: flex; align-items: flex-start; gap: 11px; padding: 13px 0; }
@@ -112,13 +112,12 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 .policy-toggle small { color: #65727e; line-height: 1.45; font-size: 10px; }
 
 .permission-list { display: grid; margin-top: 14px; border-top: 1px solid #20272e; }
-.permission-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 78px; border-bottom: 1px solid #20272e; }
+.permission-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 58px; border-bottom: 1px solid #20272e; }
 .permission-icon { width: 8px; height: 8px; border-radius: 50%; background: #697681; }
 .permission-icon.positive { background: #53dc9b; box-shadow: 0 0 0 4px rgba(83, 220, 155, 0.08); }
 .permission-icon.negative { background: #ff727b; }
-.permission-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.permission-copy { min-width: 0; }
 .permission-copy strong { color: #bfc8d1; font-size: 11px; }
-.permission-copy span { color: #697682; font-size: 9.5px; line-height: 1.35; }
 .permission-control { display: flex; align-items: flex-end; flex-direction: column; gap: 4px; }
 .permission-actions { display: flex; align-items: center; gap: 10px; }
 .permission-actions .text-button.secondary { color: #778592; }
@@ -173,7 +172,7 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
   .activity-overlay, .activity-dialog { animation: none; }
 }
 
-@media (max-width: 820px) {
+@media (max-width: 640px) {
   .app-shell { padding-inline: 26px; }
   .pairing-layout { gap: 35px; }
   .connected-layout { grid-template-columns: 1fr; }

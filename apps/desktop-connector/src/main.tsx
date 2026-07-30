@@ -26,27 +26,22 @@ const phaseLabels: Record<ConnectionPhase, string> = {
 const permissionLabels: Array<{
   key: keyof PermissionState;
   title: string;
-  description: string;
 }> = [
   {
     key: "accessibility",
     title: "화면 요소 분석",
-    description: "UI Automation 또는 손쉬운 사용 트리로 앱 구조를 읽습니다.",
   },
   {
     key: "screenCapture",
     title: "화면 캡처",
-    description: "현재 데스크톱을 캡처해 작업 전후 상태를 검증합니다.",
   },
   {
     key: "inputControl",
     title: "키보드와 포인터",
-    description: "로컬 승인 후 제한된 클릭과 입력 작업을 수행합니다.",
   },
   {
     key: "processInspection",
     title: "프로세스와 진단",
-    description: "실행 앱, 프로세스 상태와 제한된 시스템 로그를 분석합니다.",
   },
 ];
 
@@ -225,10 +220,6 @@ function App() {
             <Activity aria-hidden="true" size={14} />
             활동 기록
           </button>
-          <div className={`connection-pill phase-${snapshot.phase}`}>
-            <i />
-            {phaseLabels[snapshot.phase]}
-          </div>
         </div>
       </header>
 
@@ -304,12 +295,15 @@ function App() {
                 <span className="eyebrow">현재 연결</span>
                 <h1>{snapshot.settings?.deviceName}</h1>
               </div>
-              <span className="platform-badge">{snapshot.settings?.platform === "macos" ? "macOS" : "Windows"}</span>
+              <div className={`connection-pill phase-${snapshot.phase}`}>
+                <i />
+                {phaseLabels[snapshot.phase]}
+              </div>
             </div>
             <dl className="identity-grid">
               <div><dt>Workspace</dt><dd>{snapshot.settings?.workspaceKey}</dd></div>
               <div><dt>Project</dt><dd>{snapshot.settings?.projectName}</dd></div>
-              <div><dt>Connector ID</dt><dd className="mono">{snapshot.settings?.connectorId.slice(0, 13)}…</dd></div>
+              <div><dt>Connector ID</dt><dd className="mono connector-id">{snapshot.settings?.connectorId}</dd></div>
             </dl>
             <div className="connection-actions">
               {online ? (
@@ -383,7 +377,6 @@ function App() {
                     <div className={`permission-icon ${permissionTone(value)}`} />
                     <div className="permission-copy">
                       <strong>{permission.title}</strong>
-                      <span>{permission.description}</span>
                     </div>
                     <div className="permission-control">
                       <span className={`status-label ${permissionTone(value)}`}>{permissionText(value)}</span>
