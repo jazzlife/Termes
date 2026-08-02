@@ -1318,6 +1318,7 @@ function App(): JSX.Element {
     try {
       const result = await runDeviceCommand(selectedDevice.id, {
         taskId: selectedTask?.id || null,
+        projectId: selectedProject?.id || null,
         action: deviceAction,
         params,
       });

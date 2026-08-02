@@ -25,10 +25,9 @@ export async function createDesktopConnectorPairingCode(
   );
 }
 
-export async function fetchDesktopConnectors(projectId: string): Promise<DesktopConnectorSummary[]> {
-  const params = new URLSearchParams({ projectId });
+export async function fetchDesktopConnectors(): Promise<DesktopConnectorSummary[]> {
   const body = await connectorRequest<{ connectors: DesktopConnectorSummary[] }>(
-    `/api/desktop-connectors?${params.toString()}`,
+    "/api/desktop-connectors",
   );
   return body.connectors;
 }

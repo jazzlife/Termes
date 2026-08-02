@@ -591,6 +591,7 @@ export async function runDeviceCommand(
   deviceId: string,
   input: {
     taskId?: string | null;
+    projectId?: string | null;
     action: string;
     params?: Record<string, unknown>;
     timeoutMs?: number;

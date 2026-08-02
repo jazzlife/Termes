@@ -25,7 +25,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 sysinfo = "0.33"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process", "fs"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 url = "2"

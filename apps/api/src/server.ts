@@ -159,6 +159,7 @@ const deviceDiscoverInputSchema = z.object({
 
 const deviceCommandInputSchema = z.object({
   taskId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
   action: z.string().trim().min(1).max(120),
   params: z.record(z.unknown()).optional(),
   timeoutMs: z.number().int().min(1000).max(300000).optional(),
@@ -882,7 +883,7 @@ function mapChatMessage(row: {
 
 function mapDevice(row: {
   id: string;
-  project_id: string;
+  project_id: string | null;
   key: string;
   name: string;
   platform: string;
@@ -1430,19 +1431,29 @@ async function main(): Promise<void> {
           ? `
               select 1
               from device_commands dc
-              join devices d on d.id = dc.device_id
-              join projects p on p.id = d.project_id
-              join project_members pm on pm.project_id = p.id and pm.user_id = $2
-              where dc.id = $1 and p.workspace_id = $3
+              where dc.id = $1 and dc.account_id = $2 and dc.workspace_id = $3
             `
           : `
               select 1
               from devices d
-              join projects p on p.id = d.project_id
-              join project_members pm on pm.project_id = p.id and pm.user_id = $2
-              where d.id = $1 and p.workspace_id = $3
+              left join desktop_connectors connector
+                on connector.device_id = d.id
+               and connector.account_id = d.account_id
+               and connector.revoked_at is null
+              left join projects p on p.id = d.project_id
+              left join project_members pm
+                on pm.project_id = p.id
+               and pm.user_id = $2
+              where d.id = $1
+                and (
+                  (d.transport = 'connector' and d.account_id = $2 and connector.id is not null)
+                  or
+                  (d.transport <> 'connector' and p.workspace_id = $3 and pm.project_id is not null)
+                )
             `,
-        [commandId || deviceId, principal.accountId, principal.workspaceId],
+        commandId
+          ? [commandId, principal.accountId, principal.workspaceId]
+          : [deviceId, principal.accountId, principal.workspaceId],
       );
       if ((owned.rowCount ?? 0) === 0) return reply.code(404).send({ error: "Device resource not found" });
     }
@@ -2260,15 +2271,9 @@ async function main(): Promise<void> {
   app.get("/api/devices", async (request) => {
     const principal = principalForRequest(request);
     const query = z.object({ projectId: z.string().uuid().optional() }).parse(request.query);
-    const values: string[] = [principal.accountId, principal.workspaceId];
-    const clauses: string[] = ["pm.user_id = $1", "p.workspace_id = $2"];
-    if (query.projectId) {
-      values.push(query.projectId);
-      clauses.push(`d.project_id = $${values.length}`);
-    }
     const result = await db.pool.query<{
       id: string;
-      project_id: string;
+      project_id: string | null;
       key: string;
       name: string;
       platform: string;
@@ -2284,12 +2289,28 @@ async function main(): Promise<void> {
         select d.id, d.project_id, d.key, d.name, d.platform, d.transport, d.endpoint, d.labels, d.status,
                d.last_seen_at, d.created_at, d.updated_at
         from devices d
-        join projects p on p.id = d.project_id
-        join project_members pm on pm.project_id = p.id
-        ${clauses.length > 0 ? `where ${clauses.join(" and ")}` : ""}
+        left join desktop_connectors connector
+          on connector.device_id = d.id
+         and connector.account_id = d.account_id
+         and connector.revoked_at is null
+        left join projects p on p.id = d.project_id
+        left join project_members pm
+          on pm.project_id = p.id
+         and pm.user_id = $1
+        where (
+          d.transport = 'connector'
+          and d.account_id = $1
+          and connector.id is not null
+        ) or (
+          d.transport <> 'connector'
+          and d.account_id = $1
+          and p.workspace_id = $2
+          and pm.project_id is not null
+          and ($3::uuid is null or d.project_id = $3)
+        )
         order by updated_at desc, created_at desc
       `,
-      values,
+      [principal.accountId, principal.workspaceId, query.projectId ?? null],
     );
     return { devices: result.rows.map(mapDevice) };
   });
@@ -2297,6 +2318,9 @@ async function main(): Promise<void> {
   app.post("/api/devices", async (request, reply) => {
     const principal = principalForRequest(request);
     const input = deviceInputSchema.parse(request.body);
+    if (input.transport === "connector") {
+      return reply.code(400).send({ error: "Desktop Connector devices must be created with a pairing code" });
+    }
     const projectId = await resolveProjectId(db, principal.accountId, principal.workspaceId, input.projectId);
     try {
       assertPlatformTransport(input.platform, input.transport);
@@ -2306,7 +2330,7 @@ async function main(): Promise<void> {
     const key = input.key?.trim() || deviceKeyFromName(input.name, input.platform);
     const result = await db.pool.query<{
       id: string;
-      project_id: string;
+      project_id: string | null;
       key: string;
       name: string;
       platform: string;
@@ -2319,11 +2343,12 @@ async function main(): Promise<void> {
       updated_at: Date;
     }>(
       `
-        insert into devices (project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at)
-        values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, case when $8 = 'online' then now() else null end)
+        insert into devices (account_id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at)
+        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, case when $9 = 'online' then now() else null end)
         returning id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at, created_at, updated_at
       `,
       [
+        principal.accountId,
         projectId,
         key,
         input.name,
@@ -2361,7 +2386,7 @@ async function main(): Promise<void> {
         from devices d
         join projects p on p.id = d.project_id and p.workspace_id = $2
         join project_members pm on pm.project_id = p.id and pm.user_id = $3
-        where d.id = $1
+        where d.id = $1 and d.transport <> 'connector'
       `,
       [params.deviceId, principal.workspaceId, principal.accountId],
     );
@@ -2370,6 +2395,9 @@ async function main(): Promise<void> {
       return reply.code(404).send({ error: "Device not found" });
     }
     const nextTransport = input.transport || assertDeviceTransport(currentRow.transport);
+    if (nextTransport === "connector") {
+      return reply.code(400).send({ error: "Use Desktop Connector pairing to create connector devices" });
+    }
     try {
       assertPlatformTransport(assertDevicePlatform(currentRow.platform), nextTransport);
     } catch (error) {
@@ -2377,7 +2405,7 @@ async function main(): Promise<void> {
     }
     const result = await db.pool.query<{
       id: string;
-      project_id: string;
+      project_id: string | null;
       key: string;
       name: string;
       platform: string;
@@ -2399,7 +2427,7 @@ async function main(): Promise<void> {
           status = coalesce($8, status),
           last_seen_at = case when $8 = 'online' then now() else last_seen_at end,
           updated_at = now()
-        where id = $1 and project_id = $9
+        where id = $1 and project_id = $9 and transport <> 'connector'
         returning id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at, created_at, updated_at
       `,
       [
@@ -2424,11 +2452,12 @@ async function main(): Promise<void> {
   app.delete("/api/devices/:deviceId", async (request, reply) => {
     const principal = principalForRequest(request);
     const params = z.object({ deviceId: z.string().uuid() }).parse(request.params);
-    const result = await db.pool.query<{ id: string; project_id: string; key: string; name: string }>(
+    const result = await db.pool.query<{ id: string; project_id: string | null; key: string; name: string }>(
       `
         delete from devices d
         using projects p, project_members pm
         where d.id = $1
+          and d.transport <> 'connector'
           and p.id = d.project_id
           and p.workspace_id = $2
           and pm.project_id = p.id
@@ -2460,6 +2489,7 @@ async function main(): Promise<void> {
 
     const devices: DeviceSummary[] = [];
     for (const discovered of body.devices || []) {
+      if (discovered.transport === "connector") continue;
       try {
         assertPlatformTransport(discovered.platform, discovered.transport);
       } catch {
@@ -2467,7 +2497,7 @@ async function main(): Promise<void> {
       }
       const result = await db.pool.query<{
         id: string;
-        project_id: string;
+        project_id: string | null;
         key: string;
         name: string;
         platform: string;
@@ -2480,8 +2510,8 @@ async function main(): Promise<void> {
         updated_at: Date;
       }>(
         `
-          insert into devices (project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at)
-          values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, now())
+          insert into devices (account_id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at)
+          values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, now())
           on conflict (project_id, key) do update
           set
             name = excluded.name,
@@ -2495,6 +2525,7 @@ async function main(): Promise<void> {
           returning id, project_id, key, name, platform, transport, endpoint, labels, status, last_seen_at, created_at, updated_at
         `,
         [
+          principal.accountId,
           projectId,
           discovered.key,
           discovered.name,
@@ -2519,7 +2550,7 @@ async function main(): Promise<void> {
     const input = deviceCommandInputSchema.parse(request.body);
     const deviceResult = await db.pool.query<{
       id: string;
-      project_id: string;
+      project_id: string | null;
       key: string;
       name: string;
       platform: string;
@@ -2535,29 +2566,65 @@ async function main(): Promise<void> {
         select d.id, d.project_id, d.key, d.name, d.platform, d.transport, d.endpoint, d.labels, d.status,
                d.last_seen_at, d.created_at, d.updated_at
         from devices d
-        join projects p on p.id = d.project_id and p.workspace_id = $2
-        join project_members pm on pm.project_id = p.id and pm.user_id = $3
+        left join desktop_connectors connector
+          on connector.device_id = d.id
+         and connector.account_id = d.account_id
+         and connector.revoked_at is null
+        left join projects device_project on device_project.id = d.project_id
+        left join project_members pm
+          on pm.project_id = device_project.id
+         and pm.user_id = $2
         where d.id = $1
+          and d.account_id = $2
+          and (
+            (d.transport = 'connector' and connector.id is not null)
+            or
+            (d.transport <> 'connector' and device_project.workspace_id = $3 and pm.project_id is not null)
+          )
       `,
-      [params.deviceId, principal.workspaceId, principal.accountId],
+      [params.deviceId, principal.accountId, principal.workspaceId],
     );
     const deviceRow = deviceResult.rows[0];
     if (!deviceRow) {
       return reply.code(404).send({ error: "Device not found" });
     }
     const device = mapDevice(deviceRow);
+    let commandProjectId: string;
     if (input.taskId) {
-      const taskResult = await db.pool.query<{ id: string }>(
+      const taskResult = await db.pool.query<{ id: string; project_id: string }>(
         `
-          select t.id
+          select t.id, t.project_id
           from tasks t
           join projects p on p.id = t.project_id and p.workspace_id = $3
-          join project_members pm on pm.project_id = p.id and pm.user_id = $4
-          where t.id = $1 and t.project_id = $2
+          join project_members pm on pm.project_id = p.id and pm.user_id = $2
+          where t.id = $1 and t.account_id = $2 and t.workspace_id = $3
         `,
-        [input.taskId, device.projectId, principal.workspaceId, principal.accountId],
+        [input.taskId, principal.accountId, principal.workspaceId],
       );
-      if (!taskResult.rows[0]) return reply.code(404).send({ error: "Task not found" });
+      const task = taskResult.rows[0];
+      if (!task || (input.projectId && input.projectId !== task.project_id)) {
+        return reply.code(404).send({ error: "Task not found" });
+      }
+      commandProjectId = task.project_id;
+    } else {
+      const requestedProjectId = input.projectId || device.projectId;
+      if (!requestedProjectId) {
+        return reply.code(400).send({ error: "projectId is required when taskId is not provided" });
+      }
+      const projectResult = await db.pool.query<{ id: string }>(
+        `
+          select p.id
+          from projects p
+          join project_members pm on pm.project_id = p.id and pm.user_id = $2
+          where p.id = $1 and p.workspace_id = $3
+        `,
+        [requestedProjectId, principal.accountId, principal.workspaceId],
+      );
+      if (!projectResult.rows[0]) return reply.code(404).send({ error: "Project not found" });
+      commandProjectId = requestedProjectId;
+    }
+    if (device.transport !== "connector" && device.projectId !== commandProjectId) {
+      return reply.code(404).send({ error: "Device not found" });
     }
     const actionOwner = actionPlatform(input.action);
     if (!actionOwner || actionOwner !== device.platform) {
@@ -2588,16 +2655,56 @@ async function main(): Promise<void> {
       updated_at: Date;
     }>(
       `
-        insert into device_commands (project_id, task_id, device_id, action, params, status)
-        values ($1, $2, $3, $4, $5::jsonb, 'created')
+        insert into device_commands (account_id, workspace_id, project_id, task_id, device_id, action, params, status)
+        select $1, $2, p.id, $4, d.id, $6, $7::jsonb, 'created'
+        from projects p
+        join account_workspaces command_workspace
+          on command_workspace.id = p.workspace_id
+         and command_workspace.account_id = $1
+        join project_members command_member
+          on command_member.project_id = p.id
+         and command_member.user_id = $1
+        join devices d
+          on d.id = $5
+         and d.account_id = $1
+        left join desktop_connectors command_connector
+          on command_connector.device_id = d.id
+         and command_connector.account_id = d.account_id
+         and command_connector.revoked_at is null
+        where p.id = $3
+          and p.workspace_id = $2
+          and (
+            (d.transport = 'connector' and command_connector.id is not null)
+            or
+            (d.transport <> 'connector' and d.project_id = p.id)
+          )
+          and (
+            $4::uuid is null
+            or exists (
+              select 1
+              from tasks command_task
+              where command_task.id = $4
+                and command_task.account_id = $1
+                and command_task.workspace_id = $2
+                and command_task.project_id = p.id
+            )
+          )
         returning id, project_id, task_id, device_id, action, params, status, approval_id,
                   stdout, stderr, exit_code, artifact_uri, started_at, completed_at, created_at, updated_at
       `,
-      [device.projectId, input.taskId ?? null, device.id, input.action, JSON.stringify(commandParamsForLedger)],
+      [
+        principal.accountId,
+        principal.workspaceId,
+        commandProjectId,
+        input.taskId ?? null,
+        device.id,
+        input.action,
+        JSON.stringify(commandParamsForLedger),
+      ],
     );
     const commandRow = commandResult.rows[0];
     if (!commandRow) {
-      throw new Error("Device command insert did not return a row");
+      return reply.code(404).send({ error: "Device or command scope not found" });
     }
     let command = mapDeviceCommand(commandRow);
 
@@ -2891,11 +2998,11 @@ async function main(): Promise<void> {
         select dc.id, dc.project_id, dc.task_id, dc.device_id, dc.action, dc.params, dc.status, dc.approval_id,
                dc.stdout, dc.stderr, dc.exit_code, dc.artifact_uri, dc.started_at, dc.completed_at, dc.created_at, dc.updated_at
         from device_commands dc
-        join projects p on p.id = dc.project_id and p.workspace_id = $2
-        join project_members pm on pm.project_id = p.id and pm.user_id = $3
-        where dc.id = $1
+        join projects p on p.id = dc.project_id and p.workspace_id = dc.workspace_id
+        join project_members pm on pm.project_id = p.id and pm.user_id = $2
+        where dc.id = $1 and dc.account_id = $2 and dc.workspace_id = $3
       `,
-      [params.commandId, principal.workspaceId, principal.accountId],
+      [params.commandId, principal.accountId, principal.workspaceId],
     );
     const row = result.rows[0];
     if (!row) {
@@ -2911,11 +3018,11 @@ async function main(): Promise<void> {
       `
         select dc.id, dc.stdout, dc.stderr, dc.artifact_uri
         from device_commands dc
-        join projects p on p.id = dc.project_id and p.workspace_id = $2
-        join project_members pm on pm.project_id = p.id and pm.user_id = $3
-        where dc.id = $1
+        join projects p on p.id = dc.project_id and p.workspace_id = dc.workspace_id
+        join project_members pm on pm.project_id = p.id and pm.user_id = $2
+        where dc.id = $1 and dc.account_id = $2 and dc.workspace_id = $3
       `,
-      [params.commandId, principal.workspaceId, principal.accountId],
+      [params.commandId, principal.accountId, principal.workspaceId],
     );
     const row = result.rows[0];
     if (!row) {

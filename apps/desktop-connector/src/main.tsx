@@ -123,11 +123,6 @@ function App() {
         setSnapshot(initial);
         setDeviceName(defaultName);
         setApiBaseUrl(initial.settings?.apiBaseUrl ?? "");
-        if (initial.settings && ["offline", "error"].includes(initial.phase)) {
-          void invoke("connect_connector").catch((connectError) => {
-            setError(errorMessage(connectError));
-          });
-        }
       })
       .catch((loadError) => setError(errorMessage(loadError)));
     return () => {
@@ -301,8 +296,8 @@ function App() {
               </div>
             </div>
             <dl className="identity-grid">
-              <div><dt>Workspace</dt><dd>{snapshot.settings?.workspaceKey}</dd></div>
-              <div><dt>Project</dt><dd>{snapshot.settings?.projectName}</dd></div>
+              <div><dt>Account</dt><dd className="mono connector-id">{snapshot.settings?.accountId}</dd></div>
+              <div><dt>사용 범위</dt><dd>모든 Workspace</dd></div>
               <div><dt>Connector ID</dt><dd className="mono connector-id">{snapshot.settings?.connectorId}</dd></div>
             </dl>
             <div className="connection-actions">

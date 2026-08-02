@@ -35,6 +35,7 @@ pub struct ConnectorState {
     approval_senders: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     stop_sender: Mutex<Option<watch::Sender<bool>>>,
     connect_task: Mutex<Option<JoinHandle<()>>>,
+    lifecycle: Mutex<()>,
     execution_generation: AtomicU64,
 }
 
@@ -58,6 +59,7 @@ impl ConnectorState {
             approval_senders: Mutex::new(HashMap::new()),
             stop_sender: Mutex::new(None),
             connect_task: Mutex::new(None),
+            lifecycle: Mutex::new(()),
             execution_generation: AtomicU64::new(0),
         }))
     }
@@ -73,6 +75,25 @@ impl ConnectorState {
             activities: inner.activities,
             last_error: inner.last_error,
         }
+    }
+
+    pub fn connect_on_startup(self: &Arc<Self>) {
+        if self
+            .inner
+            .read()
+            .expect("connector state poisoned")
+            .settings
+            .is_none()
+        {
+            return;
+        }
+
+        let state = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = state.connect().await {
+                state.set_phase(ConnectionPhase::Error, Some(error));
+            }
+        });
     }
 
     fn emit_snapshot(&self) {
@@ -121,6 +142,7 @@ impl ConnectorState {
         if device_name.is_empty() || device_name.chars().count() > 120 {
             return Err("Device name must contain between 1 and 120 characters".to_owned());
         }
+        let _lifecycle = self.lifecycle.lock().await;
         self.disconnect_internal(false).await;
         self.set_phase(ConnectionPhase::Connecting, None);
         let permissions = platform::permission_state();
@@ -179,15 +201,20 @@ impl ConnectorState {
         });
         self.add_activity(
             "pairing",
-            "Workspace connected",
-            format!("{} / {}", settings.workspace_key, settings.project_name),
+            "Account connected",
+            settings.account_id.clone(),
             Some(true),
         );
-        self.connect().await?;
+        self.connect_locked().await?;
         Ok(self.snapshot())
     }
 
     pub async fn connect(self: &Arc<Self>) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        self.connect_locked().await
+    }
+
+    async fn connect_locked(self: &Arc<Self>) -> Result<(), String> {
         self.disconnect_internal(false).await;
         let settings = self
             .inner
@@ -208,6 +235,7 @@ impl ConnectorState {
     }
 
     pub async fn disconnect(self: &Arc<Self>) -> ConnectorSnapshot {
+        let _lifecycle = self.lifecycle.lock().await;
         self.disconnect_internal(true).await;
         self.snapshot()
     }
@@ -218,6 +246,7 @@ impl ConnectorState {
         }
         if let Some(task) = self.connect_task.lock().await.take() {
             task.abort();
+            let _ = task.await;
         }
         self.reject_all_pending().await;
         let paired = self
@@ -245,6 +274,7 @@ impl ConnectorState {
     }
 
     pub async fn forget(self: &Arc<Self>) -> Result<ConnectorSnapshot, String> {
+        let _lifecycle = self.lifecycle.lock().await;
         let connector_id = self
             .inner
             .read()
@@ -297,6 +327,7 @@ impl ConnectorState {
     }
 
     pub async fn emergency_stop(self: &Arc<Self>) -> ConnectorSnapshot {
+        let _lifecycle = self.lifecycle.lock().await;
         self.execution_generation.fetch_add(1, Ordering::SeqCst);
         self.reject_all_pending().await;
         self.disconnect_internal(false).await;

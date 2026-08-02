@@ -325,13 +325,23 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
 
     const deviceResult = await client.query<{ id: string }>(
       `
-        select id
-        from devices
-        where project_id = $1 and platform = $2
-        order by case status when 'online' then 0 when 'busy' then 1 when 'unknown' then 2 else 3 end, updated_at desc
+        select d.id
+        from devices d
+        left join desktop_connectors connector
+          on connector.device_id = d.id
+         and connector.account_id = d.account_id
+         and connector.revoked_at is null
+        where d.account_id = $1
+          and d.platform = $2
+          and (
+            (d.transport = 'connector' and connector.id is not null)
+            or
+            (d.transport <> 'connector' and d.project_id = $3)
+          )
+        order by case d.status when 'online' then 0 when 'busy' then 1 when 'unknown' then 2 else 3 end, d.updated_at desc
         limit 1
       `,
-      [task.projectId, contract.platform],
+      [task.accountId, contract.platform, task.projectId],
     );
     const deviceId = deviceResult.rows[0]?.id;
     if (!deviceId) {

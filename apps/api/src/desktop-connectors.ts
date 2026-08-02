@@ -101,10 +101,10 @@ const connectorMessageSchema = z.discriminatedUnion("type", [
 type ConnectorRow = {
   id: string;
   account_id: string;
-  workspace_id: string;
-  project_id: string;
-  project_name: string;
-  workspace_key: string;
+  workspace_id: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  workspace_key: string | null;
   device_id: string;
   name: string;
   platform: "windows" | "macos";
@@ -130,6 +130,13 @@ type ConnectorSocket = {
   on(event: "error", listener: (error: Error) => void): void;
 };
 
+type ConnectorSession = {
+  socket: ConnectorSocket;
+  credentialVersion: number;
+  active: boolean;
+  messageChain: Promise<void>;
+};
+
 export type DesktopCommandResult = {
   status: DeviceCommandStatus;
   stdout: string;
@@ -150,8 +157,10 @@ export type DesktopCommandRequest = {
 
 type PendingCommand = {
   connectorId: string;
+  credentialVersion: number;
   sequence: number;
   timer: NodeJS.Timeout;
+  processingResult: boolean;
   resolve: (result: DesktopCommandResult) => void;
 };
 
@@ -193,6 +202,7 @@ function effectiveConnectorStatus(row: ConnectorRow): DesktopConnectorStatus {
 function mapConnector(row: ConnectorRow): DesktopConnectorSummary {
   return {
     id: row.id,
+    accountId: row.account_id,
     projectId: row.project_id,
     projectName: row.project_name,
     deviceId: row.device_id,
@@ -269,7 +279,7 @@ function artifactExtension(mimeType: string): string {
 }
 
 export class DesktopConnectorHub {
-  private readonly sockets = new Map<string, ConnectorSocket>();
+  private readonly sockets = new Map<string, ConnectorSession>();
   private readonly pending = new Map<string, PendingCommand>();
   private readonly activeByConnector = new Map<string, string>();
   private readonly sweeper: NodeJS.Timeout;
@@ -381,6 +391,7 @@ export class DesktopConnectorHub {
       const client = await this.deps.db.pool.connect();
       let result: DesktopConnectorPairingResult | null = null;
       let eventProjectId: string | null = null;
+      let rotatedConnectorId: string | null = null;
       try {
         await client.query("begin");
         const pairingResult = await client.query<{
@@ -410,63 +421,81 @@ export class DesktopConnectorHub {
           return reply.code(410).send({ error: "pairing_code_invalid_or_expired" });
         }
 
-        const deviceResult = await client.query<{ id: string }>(
-          `
-            insert into devices (project_id, key, name, platform, transport, endpoint, labels, status)
-            values ($1, $2, $3, $4, 'connector', null, $5::jsonb, 'offline')
-            on conflict (project_id, key) do update
-            set name = excluded.name,
-                platform = excluded.platform,
-                transport = 'connector',
-                endpoint = null,
-                labels = excluded.labels,
-                status = 'offline',
-                updated_at = now()
-            returning id
-          `,
-          [
-            pairing.project_id,
-            machineDeviceKey(input.platform, input.machineFingerprint),
-            input.name,
-            input.platform,
-            JSON.stringify({ source: "desktop-connector", appVersion: input.appVersion }),
-          ],
-        );
-        const deviceId = deviceResult.rows[0]?.id;
-        if (!deviceId) throw new Error("Desktop device upsert did not return an id");
-
-        const deviceToken = randomBytes(32).toString("base64url");
+        await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+          `${pairing.account_id}:${input.machineFingerprint}`,
+        ]);
         const priorResult = await client.query<{ id: string; device_id: string }>(
           `
             select id, device_id
             from desktop_connectors
-            where workspace_id = $1 and machine_fingerprint = $2
-            order by created_at desc
+            where account_id = $1 and machine_fingerprint = $2
+            order by (revoked_at is null) desc, updated_at desc, created_at desc
             limit 1
             for update
           `,
-          [pairing.workspace_id, input.machineFingerprint],
+          [pairing.account_id, input.machineFingerprint],
         );
         const prior = priorResult.rows[0];
+        let deviceId: string;
+        if (prior) {
+          deviceId = prior.device_id;
+          await client.query(
+            `
+              update devices
+              set account_id = $2, project_id = null, key = $3, name = $4, platform = $5,
+                  transport = 'connector', endpoint = null, labels = $6::jsonb,
+                  status = 'offline', updated_at = now()
+              where id = $1
+            `,
+            [
+              deviceId,
+              pairing.account_id,
+              machineDeviceKey(input.platform, input.machineFingerprint),
+              input.name,
+              input.platform,
+              JSON.stringify({ source: "desktop-connector", appVersion: input.appVersion }),
+            ],
+          );
+        } else {
+          const deviceResult = await client.query<{ id: string }>(
+            `
+              insert into devices (account_id, project_id, key, name, platform, transport, endpoint, labels, status)
+              values ($1, null, $2, $3, $4, 'connector', null, $5::jsonb, 'offline')
+              returning id
+            `,
+            [
+              pairing.account_id,
+              machineDeviceKey(input.platform, input.machineFingerprint),
+              input.name,
+              input.platform,
+              JSON.stringify({ source: "desktop-connector", appVersion: input.appVersion }),
+            ],
+          );
+          deviceId = deviceResult.rows[0]?.id || "";
+          if (!deviceId) throw new Error("Desktop device insert did not return an id");
+        }
+
+        const deviceToken = randomBytes(32).toString("base64url");
         let connectorId: string;
         if (prior) {
           connectorId = prior.id;
+          rotatedConnectorId = connectorId;
           await client.query(
             `
               update desktop_connectors
               set account_id = $2,
-                  workspace_id = $3,
-                  project_id = $4,
-                  device_id = $5,
-                  name = $6,
-                  platform = $7,
-                  public_key = $8,
-                  token_hash = $9,
+                  workspace_id = null,
+                  project_id = null,
+                  device_id = $3,
+                  name = $4,
+                  platform = $5,
+                  public_key = $6,
+                  token_hash = $7,
                   credential_version = credential_version + 1,
-                  protocol_version = $10,
-                  app_version = $11,
-                  capabilities = $12::jsonb,
-                  permissions = $13::jsonb,
+                  protocol_version = $8,
+                  app_version = $9,
+                  capabilities = $10::jsonb,
+                  permissions = $11::jsonb,
                   status = 'offline',
                   revoked_at = null,
                   disconnected_at = now(),
@@ -476,8 +505,6 @@ export class DesktopConnectorHub {
             [
               connectorId,
               pairing.account_id,
-              pairing.workspace_id,
-              pairing.project_id,
               deviceId,
               input.name,
               input.platform,
@@ -489,23 +516,18 @@ export class DesktopConnectorHub {
               JSON.stringify(input.permissions),
             ],
           );
-          if (prior.device_id !== deviceId) {
-            await client.query("update devices set status = 'offline', updated_at = now() where id = $1", [prior.device_id]);
-          }
         } else {
           const connectorResult = await client.query<{ id: string }>(
             `
               insert into desktop_connectors (
-                account_id, workspace_id, project_id, device_id, name, platform,
+                account_id, device_id, name, platform,
                 machine_fingerprint, public_key, token_hash, protocol_version,
                 app_version, capabilities, permissions
-              ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
+              ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)
               returning id
             `,
             [
               pairing.account_id,
-              pairing.workspace_id,
-              pairing.project_id,
               deviceId,
               input.name,
               input.platform,
@@ -544,6 +566,9 @@ export class DesktopConnectorHub {
       }
 
       if (!result || !eventProjectId) throw new Error("Desktop connector pairing did not complete");
+      if (rotatedConnectorId) {
+        this.closeSocket(rotatedConnectorId, 4002, "Connector credentials rotated by a new pairing");
+      }
       await appendEvent(this.deps.db.pool, this.deps.redis, {
         projectId: eventProjectId,
         type: "device.connector.paired",
@@ -554,20 +579,16 @@ export class DesktopConnectorHub {
 
     app.get("/api/desktop-connectors", async (request) => {
       const principal = this.deps.principalForRequest(request);
-      const query = listConnectorsSchema.parse(request.query);
-      const values: string[] = [principal.accountId, principal.workspaceId];
-      const projectClause = query.projectId ? "and dc.project_id = $3" : "";
-      if (query.projectId) values.push(query.projectId);
+      listConnectorsSchema.parse(request.query);
       const connectors = await this.deps.db.pool.query<ConnectorRow>(
         `
-          select dc.*, p.name as project_name, aw.key as workspace_key
+          select dc.*, null::text as project_name, null::text as workspace_key
           from desktop_connectors dc
-          join projects p on p.id = dc.project_id and p.workspace_id = dc.workspace_id
-          join account_workspaces aw on aw.id = dc.workspace_id and aw.account_id = dc.account_id
-          where dc.account_id = $1 and dc.workspace_id = $2 ${projectClause}
+          join devices d on d.id = dc.device_id and d.account_id = dc.account_id
+          where dc.account_id = $1
           order by dc.updated_at desc, dc.created_at desc
         `,
-        values,
+        [principal.accountId],
       );
       return { connectors: connectors.rows.map(mapConnector) };
     });
@@ -577,7 +598,7 @@ export class DesktopConnectorHub {
       const params = connectorParamsSchema.parse(request.params);
       const row = await this.ownedConnector(params.connectorId, principal);
       if (!row) return reply.code(404).send({ error: "Desktop connector not found" });
-      this.closeSocket(params.connectorId, 4000, "Disconnected from Termes workspace");
+      this.closeSocket(params.connectorId, 4000, "Disconnected from Termes account");
       await this.markConnectorOffline(params.connectorId, row.device_id);
       return reply.code(204).send();
     });
@@ -586,17 +607,17 @@ export class DesktopConnectorHub {
       const principal = this.deps.principalForRequest(request);
       const params = connectorParamsSchema.parse(request.params);
       const client = await this.deps.db.pool.connect();
-      let revoked: { id: string; device_id: string; project_id: string } | undefined;
+      let revoked: { id: string; device_id: string; project_id: string | null } | undefined;
       try {
         await client.query("begin");
-        const result = await client.query<{ id: string; device_id: string; project_id: string }>(
+        const result = await client.query<{ id: string; device_id: string; project_id: string | null }>(
           `
             update desktop_connectors
             set status = 'revoked', revoked_at = now(), disconnected_at = now(), updated_at = now()
-            where id = $1 and account_id = $2 and workspace_id = $3 and revoked_at is null
+            where id = $1 and account_id = $2 and revoked_at is null
             returning id, device_id, project_id
           `,
-          [params.connectorId, principal.accountId, principal.workspaceId],
+          [params.connectorId, principal.accountId],
         );
         revoked = result.rows[0];
         if (revoked) {
@@ -611,11 +632,6 @@ export class DesktopConnectorHub {
       }
       if (!revoked) return reply.code(404).send({ error: "Desktop connector not found" });
       this.closeSocket(params.connectorId, 4001, "Connector access revoked");
-      await appendEvent(this.deps.db.pool, this.deps.redis, {
-        projectId: revoked.project_id,
-        type: "device.connector.revoked",
-        payload: { connectorId: revoked.id, deviceId: revoked.device_id },
-      });
       return reply.code(204).send();
     });
 
@@ -662,80 +678,111 @@ export class DesktopConnectorHub {
       id: string;
       device_id: string;
       status: DesktopConnectorStatus;
+      credential_version: number;
       revoked_at: Date | null;
     }>(
       `
-        select id, device_id, status, revoked_at
-        from desktop_connectors
-        where device_id = $1
-        order by created_at desc
+        select connector.id, connector.device_id, connector.status,
+               connector.credential_version, connector.revoked_at
+        from desktop_connectors connector
+        join device_commands command
+          on command.id = $2
+         and command.device_id = connector.device_id
+         and command.account_id = connector.account_id
+        where connector.device_id = $1 and connector.revoked_at is null
+        order by connector.created_at desc
         limit 1
       `,
-      [input.deviceId],
+      [input.deviceId, input.commandId],
     );
     const connector = connectorResult.rows[0];
     if (!connector || connector.revoked_at) throw new Error("desktop_connector_not_paired");
-    const socket = this.sockets.get(connector.id);
-    if (!socket || socket.readyState !== 1) throw new Error("desktop_connector_offline");
+    const session = this.sockets.get(connector.id);
+    if (!session?.active || session.socket.readyState !== 1) throw new Error("desktop_connector_offline");
+    if (session.credentialVersion !== connector.credential_version) {
+      this.closeSocket(connector.id, 4002, "Connector credentials expired");
+      throw new Error("desktop_connector_credential_expired");
+    }
     if (this.activeByConnector.has(connector.id)) throw new Error("desktop_connector_busy");
 
-    const sequenceResult = await this.deps.db.pool.query<{ command_sequence: string | number }>(
-      `
-        update desktop_connectors
-        set command_sequence = command_sequence + 1, status = 'busy', updated_at = now()
-        where id = $1 and revoked_at is null
-        returning command_sequence
-      `,
-      [connector.id],
-    );
-    const sequence = Number(sequenceResult.rows[0]?.command_sequence || 0);
-    if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error("desktop_connector_sequence_failed");
-    const digest = requestDigest(input, sequence);
-    await this.deps.db.pool.query(
-      `
-        insert into desktop_connector_receipts (
-          connector_id, device_command_id, sequence, request_hash, state
-        ) values ($1, $2, $3, $4, 'dispatched')
-        on conflict (device_command_id) do nothing
-      `,
-      [connector.id, input.commandId, sequence, digest],
-    );
-
-    this.activeByConnector.set(connector.id, input.commandId);
-    socket.send(JSON.stringify({
-      type: "command",
-      protocolVersion,
-      commandId: input.commandId,
-      sequence,
-      action: input.action,
-      params: input.params,
-      deadline: new Date(Date.now() + input.timeoutMs).toISOString(),
-      requestHash: digest,
-    }));
+    const client = await this.deps.db.pool.connect();
+    let sequence = 0;
+    let digest = "";
+    let committed = false;
+    try {
+      await client.query("begin");
+      const sequenceResult = await client.query<{ command_sequence: string | number }>(
+        `
+          update desktop_connectors
+          set command_sequence = command_sequence + 1, status = 'busy', updated_at = now()
+          where id = $1
+            and credential_version = $2
+            and revoked_at is null
+            and status = 'online'
+          returning command_sequence
+        `,
+        [connector.id, session.credentialVersion],
+      );
+      sequence = Number(sequenceResult.rows[0]?.command_sequence || 0);
+      if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error("desktop_connector_busy");
+      digest = requestDigest(input, sequence);
+      const receipt = await client.query<{ device_command_id: string }>(
+        `
+          insert into desktop_connector_receipts (
+            connector_id, device_command_id, sequence, request_hash, state
+          ) values ($1, $2, $3, $4, 'dispatched')
+          on conflict (device_command_id) do nothing
+          returning device_command_id
+        `,
+        [connector.id, input.commandId, sequence, digest],
+      );
+      if (!receipt.rows[0]) throw new Error("desktop_connector_command_already_dispatched");
+      await client.query("commit");
+      committed = true;
+    } catch (error) {
+      if (!committed) await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return await new Promise<DesktopCommandResult>((resolve) => {
       const timer = setTimeout(() => {
-        this.pending.delete(input.commandId);
-        this.activeByConnector.delete(connector.id);
-        void this.deps.db.pool.query(
-          "update desktop_connector_receipts set state = 'unknown', completed_at = now(), updated_at = now() where device_command_id = $1",
-          [input.commandId],
-        );
-        void this.deps.db.pool.query(
-          "update desktop_connectors set status = 'online', updated_at = now() where id = $1 and revoked_at is null",
-          [connector.id],
-        );
-        resolve({
-          status: "unknown",
-          stdout: "",
-          stderr: "Connector command timed out; execution outcome is unknown",
-          exitCode: null,
-          artifactUri: null,
-          startedAt: new Date(Date.now() - input.timeoutMs).toISOString(),
-          completedAt: new Date().toISOString(),
-        });
+        void this.timeoutCommand(input.commandId, input.timeoutMs);
       }, input.timeoutMs + 2_000);
-      this.pending.set(input.commandId, { connectorId: connector.id, sequence, timer, resolve });
+      this.pending.set(input.commandId, {
+        connectorId: connector.id,
+        credentialVersion: session.credentialVersion,
+        sequence,
+        timer,
+        processingResult: false,
+        resolve,
+      });
+      this.activeByConnector.set(connector.id, input.commandId);
+      const currentSession = this.sockets.get(connector.id);
+      if (
+        currentSession !== session
+        || !currentSession.active
+        || currentSession.credentialVersion !== connector.credential_version
+        || currentSession.socket.readyState !== 1
+      ) {
+        this.settleUnknown(input.commandId, "Connector session changed before command dispatch");
+        return;
+      }
+      try {
+        currentSession.socket.send(JSON.stringify({
+          type: "command",
+          protocolVersion,
+          commandId: input.commandId,
+          sequence,
+          action: input.action,
+          params: input.params,
+          deadline: new Date(Date.now() + input.timeoutMs).toISOString(),
+          requestHash: digest,
+        }));
+      } catch {
+        this.settleUnknown(input.commandId, "Connector disconnected before command dispatch");
+      }
     });
   }
 
@@ -749,33 +796,74 @@ export class DesktopConnectorHub {
     const query = connectQuerySchema.parse(request.query);
     const token = websocketBearerToken(request);
     if (!token || token.length < 32 || token.length > 256) throw new Error("connector_authentication_required");
+    const tokenHash = hashDesktopSecret(token);
     const connectorResult = await this.deps.db.pool.query<ConnectorRow>(
       `
-        select dc.*, p.name as project_name, aw.key as workspace_key
+        select dc.*, null::text as project_name, null::text as workspace_key
         from desktop_connectors dc
-        join projects p on p.id = dc.project_id and p.workspace_id = dc.workspace_id
-        join account_workspaces aw on aw.id = dc.workspace_id and aw.account_id = dc.account_id
+        join devices d on d.id = dc.device_id and d.account_id = dc.account_id
         where dc.id = $1 and dc.token_hash = $2 and dc.revoked_at is null
       `,
-      [query.connectorId, hashDesktopSecret(token)],
+      [query.connectorId, tokenHash],
     );
     const connector = connectorResult.rows[0];
     if (!connector) throw new Error("connector_authentication_failed");
 
-    this.closeSocket(connector.id, 4002, "A newer connector session replaced this connection");
-    this.sockets.set(connector.id, socket);
-    await this.deps.db.pool.query(
+    const activated = await this.deps.db.pool.query<{ id: string }>(
       `
         update desktop_connectors
         set status = 'connecting', last_connected_at = now(), last_heartbeat_at = now(),
             disconnected_at = null, updated_at = now()
         where id = $1
+          and token_hash = $2
+          and credential_version = $3
+          and revoked_at is null
+        returning id
       `,
-      [connector.id],
+      [connector.id, tokenHash, connector.credential_version],
     );
+    if (!activated.rows[0]) throw new Error("connector_authentication_expired");
+
+    this.closeSocket(connector.id, 4002, "A newer connector session replaced this connection");
+    const session: ConnectorSession = {
+      socket,
+      credentialVersion: connector.credential_version,
+      active: false,
+      messageChain: Promise.resolve(),
+    };
+    this.sockets.set(connector.id, session);
+    const confirmed = await this.deps.db.pool.query<{ id: string }>(
+      `
+        select id
+        from desktop_connectors
+        where id = $1
+          and token_hash = $2
+          and credential_version = $3
+          and revoked_at is null
+      `,
+      [connector.id, tokenHash, connector.credential_version],
+    );
+    if (!confirmed.rows[0] || this.sockets.get(connector.id) !== session || socket.readyState !== 1) {
+      if (this.sockets.get(connector.id) === session) this.sockets.delete(connector.id);
+      socket.close(4401, "Connector authentication expired");
+      throw new Error("connector_authentication_expired");
+    }
+    session.active = true;
     await this.deps.db.pool.query(
-      "update devices set status = 'online', last_seen_at = now(), updated_at = now() where id = $1",
-      [connector.device_id],
+      `
+        update devices d
+        set status = 'online', last_seen_at = now(), updated_at = now()
+        where d.id = $1
+          and exists (
+            select 1
+            from desktop_connectors dc
+            where dc.id = $2
+              and dc.device_id = d.id
+              and dc.credential_version = $3
+              and dc.revoked_at is null
+          )
+      `,
+      [connector.device_id, connector.id, connector.credential_version],
     );
 
     socket.on("message", (data) => {
@@ -796,21 +884,18 @@ export class DesktopConnectorHub {
         socket.close(4400, "Invalid connector protocol message");
         return;
       }
-      void this.handleMessage(connector, socket, message.data).catch(() => {
-        socket.close(1011, "Connector message processing failed");
-      });
+      session.messageChain = session.messageChain
+        .then(() => this.handleMessage(connector, session, message.data))
+        .catch(() => {
+          socket.close(1011, "Connector message processing failed");
+        });
     });
     socket.on("close", () => {
-      if (this.sockets.get(connector.id) !== socket) return;
+      if (this.sockets.get(connector.id) !== session) return;
       this.sockets.delete(connector.id);
       const activeCommand = this.activeByConnector.get(connector.id);
       if (activeCommand) this.settleUnknown(activeCommand, "Connector disconnected before returning a result");
       void this.markConnectorOffline(connector.id, connector.device_id);
-      void appendEvent(this.deps.db.pool, this.deps.redis, {
-        projectId: connector.project_id,
-        type: "device.connector.disconnected",
-        payload: { connectorId: connector.id, deviceId: connector.device_id },
-      });
     });
     socket.on("error", () => undefined);
     socket.send(JSON.stringify({
@@ -818,10 +903,8 @@ export class DesktopConnectorHub {
       protocolVersion,
       connectorId: connector.id,
       deviceId: connector.device_id,
-      workspaceId: connector.workspace_id,
-      workspaceKey: connector.workspace_key,
-      projectId: connector.project_id,
-      projectName: connector.project_name,
+      accountId: connector.account_id,
+      scope: "account",
       serverTime: new Date().toISOString(),
       heartbeatIntervalMs: 10_000,
     }));
@@ -829,10 +912,24 @@ export class DesktopConnectorHub {
 
   private async handleMessage(
     connector: ConnectorRow,
-    socket: ConnectorSocket,
+    session: ConnectorSession,
     message: z.infer<typeof connectorMessageSchema>,
   ): Promise<void> {
-    if (this.sockets.get(connector.id) !== socket) return;
+    if (this.sockets.get(connector.id) !== session || !session.active) return;
+    const authorized = await this.deps.db.pool.query<{ id: string }>(
+      `
+        select id
+        from desktop_connectors
+        where id = $1 and credential_version = $2 and revoked_at is null
+      `,
+      [connector.id, session.credentialVersion],
+    );
+    if (!authorized.rows[0]) {
+      this.closeSocket(connector.id, 4002, "Connector credentials expired");
+      return;
+    }
+    if (this.sockets.get(connector.id) !== session || !session.active) return;
+    const socket = session.socket;
     if (message.type === "hello") {
       if (message.protocolVersion !== protocolVersion) {
         socket.close(4406, "Unsupported connector protocol version");
@@ -841,18 +938,20 @@ export class DesktopConnectorHub {
       await this.deps.db.pool.query(
         `
           update desktop_connectors
-          set status = 'online', protocol_version = $2, app_version = $3,
-              capabilities = $4::jsonb, permissions = $5::jsonb,
+          set status = 'online', protocol_version = $3, app_version = $4,
+              capabilities = $5::jsonb, permissions = $6::jsonb,
               last_heartbeat_at = now(), updated_at = now()
-          where id = $1 and revoked_at is null
+          where id = $1 and credential_version = $2 and revoked_at is null
         `,
-        [connector.id, message.protocolVersion, message.appVersion, JSON.stringify(message.capabilities), JSON.stringify(message.permissions)],
+        [
+          connector.id,
+          session.credentialVersion,
+          message.protocolVersion,
+          message.appVersion,
+          JSON.stringify(message.capabilities),
+          JSON.stringify(message.permissions),
+        ],
       );
-      await appendEvent(this.deps.db.pool, this.deps.redis, {
-        projectId: connector.project_id,
-        type: "device.connector.connected",
-        payload: { connectorId: connector.id, deviceId: connector.device_id, platform: connector.platform },
-      });
       socket.send(JSON.stringify({ type: "ready", serverTime: new Date().toISOString() }));
       return;
     }
@@ -864,34 +963,69 @@ export class DesktopConnectorHub {
               capabilities = coalesce($2::jsonb, capabilities),
               permissions = coalesce($3::jsonb, permissions),
               last_heartbeat_at = now(), updated_at = now()
-          where id = $1 and revoked_at is null
+          where id = $1 and credential_version = $4 and revoked_at is null
         `,
         [
           connector.id,
           message.capabilities ? JSON.stringify(message.capabilities) : null,
           message.permissions ? JSON.stringify(message.permissions) : null,
+          session.credentialVersion,
         ],
       );
       await this.deps.db.pool.query(
-        "update devices set status = 'online', last_seen_at = now(), updated_at = now() where id = $1",
-        [connector.device_id],
+        `
+          update devices d
+          set status = 'online', last_seen_at = now(), updated_at = now()
+          where d.id = $1
+            and exists (
+              select 1
+              from desktop_connectors dc
+              where dc.id = $2
+                and dc.device_id = d.id
+                and dc.credential_version = $3
+                and dc.revoked_at is null
+            )
+        `,
+        [connector.device_id, connector.id, session.credentialVersion],
       );
       socket.send(JSON.stringify({ type: "heartbeat.ack", serverTime: new Date().toISOString() }));
       return;
     }
     if (message.type === "command.ack") {
       const pending = this.pending.get(message.commandId);
-      if (!pending || pending.connectorId !== connector.id || pending.sequence !== message.sequence) return;
-      await this.deps.db.pool.query(
+      if (
+        !pending
+        || pending.processingResult
+        || pending.connectorId !== connector.id
+        || pending.sequence !== message.sequence
+      ) return;
+      const acknowledged = await this.deps.db.pool.query<{ id: string }>(
         `
-          update desktop_connector_receipts
+          update desktop_connector_receipts receipt
           set state = $2, acknowledged_at = $3::timestamptz,
               result = case when $4::text is null then result else jsonb_build_object('reason', $4::text) end,
               updated_at = now()
-          where device_command_id = $1 and sequence = $5
+          from desktop_connectors active_connector
+          where receipt.device_command_id = $1
+            and receipt.sequence = $5
+            and receipt.state = 'dispatched'
+            and active_connector.id = receipt.connector_id
+            and active_connector.id = $6
+            and active_connector.credential_version = $7
+            and active_connector.revoked_at is null
+          returning receipt.id
         `,
-        [message.commandId, message.accepted ? "acknowledged" : "refused", message.acknowledgedAt, message.reason ?? null, message.sequence],
+        [
+          message.commandId,
+          message.accepted ? "acknowledged" : "refused",
+          message.acknowledgedAt,
+          message.reason ?? null,
+          message.sequence,
+          connector.id,
+          session.credentialVersion,
+        ],
       );
+      if (!acknowledged.rows[0]) return;
       if (!message.accepted) {
         this.settle(message.commandId, {
           status: "failed",
@@ -906,88 +1040,197 @@ export class DesktopConnectorHub {
       return;
     }
     const pending = this.pending.get(message.commandId);
-    if (!pending || pending.connectorId !== connector.id || pending.sequence !== message.sequence) return;
-    let artifactUri: string | null = null;
-    if (message.artifact) {
-      artifactUri = await this.storeArtifact(connector, message.commandId, message.artifact);
+    if (
+      !pending
+      || pending.processingResult
+      || pending.connectorId !== connector.id
+      || pending.sequence !== message.sequence
+    ) return;
+    pending.processingResult = true;
+    clearTimeout(pending.timer);
+    let claimedRows: Array<{ id: string }>;
+    try {
+      const claimed = await this.deps.db.pool.query<{ id: string }>(
+        `
+          update desktop_connector_receipts receipt
+          set state = 'processing', updated_at = now()
+          from desktop_connectors active_connector
+          where receipt.device_command_id = $1
+            and receipt.sequence = $2
+            and receipt.state in ('dispatched', 'acknowledged')
+            and active_connector.id = receipt.connector_id
+            and active_connector.id = $3
+            and active_connector.credential_version = $4
+            and active_connector.revoked_at is null
+          returning receipt.id
+        `,
+        [message.commandId, message.sequence, connector.id, session.credentialVersion],
+      );
+      claimedRows = claimed.rows;
+    } catch (error) {
+      pending.processingResult = false;
+      this.settleUnknown(message.commandId, "Connector result claim failed");
+      throw error;
+    }
+    if (!claimedRows[0]) {
+      pending.processingResult = false;
+      this.settleUnknown(message.commandId, "Connector result arrived after command settlement");
+      return;
     }
     const status: DeviceCommandStatus = message.status === "refused" ? "failed" : message.status;
     const receiptState = message.status === "refused" ? "refused" : message.status;
-    await this.deps.db.pool.query(
-      `
-        update desktop_connector_receipts
-        set state = $2, completed_at = $3::timestamptz,
-            result = $4::jsonb, updated_at = now()
-        where device_command_id = $1 and sequence = $5
-      `,
-      [
-        message.commandId,
-        receiptState,
-        message.completedAt,
-        JSON.stringify({
-          status: message.status,
-          exitCode: message.exitCode ?? null,
-          artifactUri,
-          stdoutBytes: Buffer.byteLength(message.stdout || ""),
-          stderrBytes: Buffer.byteLength(message.stderr || ""),
-        }),
-        message.sequence,
-      ],
-    );
-    this.settle(message.commandId, {
-      status,
-      stdout: message.stdout || "",
-      stderr: message.stderr || "",
-      exitCode: message.exitCode ?? null,
-      artifactUri,
-      startedAt: message.startedAt || message.completedAt,
-      completedAt: message.completedAt,
-    });
+    let artifactUri: string | null = null;
+    try {
+      if (message.artifact) {
+        artifactUri = await this.storeArtifact(
+          connector,
+          session.credentialVersion,
+          message.commandId,
+          message.artifact,
+          {
+            state: receiptState,
+            completedAt: message.completedAt,
+            sequence: message.sequence,
+            status: message.status,
+            exitCode: message.exitCode ?? null,
+            stdoutBytes: Buffer.byteLength(message.stdout || ""),
+            stderrBytes: Buffer.byteLength(message.stderr || ""),
+          },
+        );
+      } else {
+        const persisted = await this.deps.db.pool.query<{ id: string }>(
+          `
+            update desktop_connector_receipts receipt
+            set state = $2, completed_at = $3::timestamptz,
+                result = $4::jsonb, updated_at = now()
+            from desktop_connectors active_connector
+            where receipt.device_command_id = $1
+              and receipt.sequence = $5
+              and receipt.state = 'processing'
+              and active_connector.id = receipt.connector_id
+              and active_connector.id = $6
+              and active_connector.credential_version = $7
+              and active_connector.revoked_at is null
+            returning receipt.id
+          `,
+          [
+            message.commandId,
+            receiptState,
+            message.completedAt,
+            JSON.stringify({
+              status: message.status,
+              exitCode: message.exitCode ?? null,
+              artifactUri: null,
+              stdoutBytes: Buffer.byteLength(message.stdout || ""),
+              stderrBytes: Buffer.byteLength(message.stderr || ""),
+            }),
+            message.sequence,
+            connector.id,
+            session.credentialVersion,
+          ],
+        );
+        if (!persisted.rows[0]) {
+          this.settleUnknown(message.commandId, "Connector credentials changed while processing the result");
+          return;
+        }
+      }
+      this.settle(message.commandId, {
+        status,
+        stdout: message.stdout || "",
+        stderr: message.stderr || "",
+        exitCode: message.exitCode ?? null,
+        artifactUri,
+        startedAt: message.startedAt || message.completedAt,
+        completedAt: message.completedAt,
+      });
+    } catch (error) {
+      this.settleUnknown(message.commandId, "Connector result processing failed");
+      throw error;
+    }
   }
 
   private async storeArtifact(
     connector: ConnectorRow,
+    credentialVersion: number,
     commandId: string,
     artifact: z.infer<typeof artifactSchema>,
+    completion: {
+      state: string;
+      completedAt: string;
+      sequence: number;
+      status: string;
+      exitCode: number | null;
+      stdoutBytes: number;
+      stderrBytes: number;
+    },
   ): Promise<string> {
     const content = Buffer.from(artifact.base64, "base64");
     if (content.length < 1 || content.length > maximumArtifactBytes) throw new Error("desktop_artifact_size_invalid");
     const checksum = createHash("sha256").update(content).digest("hex");
     if (checksum !== artifact.sha256) throw new Error("desktop_artifact_checksum_mismatch");
-    const artifactId = randomUUID();
-    const relative = path.join(
-      connector.account_id,
-      connector.workspace_id,
-      connector.project_id,
-      connector.device_id,
-      commandId,
-      `${artifactId}${artifactExtension(artifact.mimeType)}`,
-    );
-    const storagePath = path.resolve(this.deps.artifactRoot, relative);
-    const root = path.resolve(this.deps.artifactRoot);
-    if (!storagePath.startsWith(`${root}${path.sep}`)) throw new Error("desktop_artifact_path_invalid");
-    await mkdir(path.dirname(storagePath), { recursive: true, mode: 0o700 });
-    const temporaryPath = `${storagePath}.tmp-${randomUUID()}`;
-    await writeFile(temporaryPath, content, { flag: "wx", mode: 0o600 });
-    const uri = `/api/desktop-artifacts/${artifactId}`;
     const client = await this.deps.db.pool.connect();
+    let temporaryPath: string | null = null;
+    let storagePath: string | null = null;
     try {
       await client.query("begin");
+      const authorized = await client.query<{ id: string }>(
+        `
+          select id
+          from desktop_connectors
+          where id = $1
+            and account_id = $2
+            and device_id = $3
+            and credential_version = $4
+            and revoked_at is null
+          for update
+        `,
+        [connector.id, connector.account_id, connector.device_id, credentialVersion],
+      );
+      if (!authorized.rows[0]) throw new Error("desktop_connector_credential_expired");
+      const commandScope = await client.query<{
+        account_id: string;
+        workspace_id: string;
+        project_id: string;
+        task_id: string | null;
+      }>(
+        `
+          select account_id, workspace_id, project_id, task_id
+          from device_commands
+          where id = $1 and device_id = $2 and account_id = $3
+        `,
+        [commandId, connector.device_id, connector.account_id],
+      );
+      const scope = commandScope.rows[0];
+      if (!scope) throw new Error("desktop_artifact_command_scope_invalid");
+      const artifactId = randomUUID();
+      const relative = path.join(
+        scope.account_id,
+        scope.workspace_id,
+        scope.project_id,
+        connector.device_id,
+        commandId,
+        `${artifactId}${artifactExtension(artifact.mimeType)}`,
+      );
+      storagePath = path.resolve(this.deps.artifactRoot, relative);
+      const root = path.resolve(this.deps.artifactRoot);
+      if (!storagePath.startsWith(`${root}${path.sep}`)) throw new Error("desktop_artifact_path_invalid");
+      await mkdir(path.dirname(storagePath), { recursive: true, mode: 0o700 });
+      temporaryPath = `${storagePath}.tmp-${randomUUID()}`;
+      await writeFile(temporaryPath, content, { flag: "wx", mode: 0o600 });
+      const uri = `/api/desktop-artifacts/${artifactId}`;
       const inserted = await client.query<{ id: string }>(
         `
           insert into artifacts (
             id, account_id, workspace_id, project_id, task_id, kind, uri, checksum, metadata
           )
-          select $1, $2, $3, $4, dc.task_id, 'desktop.connector', $5, $6, $7::jsonb
+          select $1, dc.account_id, dc.workspace_id, dc.project_id, dc.task_id,
+                 'desktop.connector', $2, $3, $4::jsonb
           from device_commands dc
-          where dc.id = $8 and dc.device_id = $9 and dc.project_id = $4
+          where dc.id = $5 and dc.device_id = $6 and dc.account_id = $7
           returning id
         `,
         [
           artifactId,
-          connector.account_id,
-          connector.workspace_id,
-          connector.project_id,
           uri,
           checksum,
           JSON.stringify({
@@ -1001,17 +1244,48 @@ export class DesktopConnectorHub {
           }),
           commandId,
           connector.device_id,
+          connector.account_id,
         ],
       );
       if (!inserted.rows[0]) throw new Error("desktop_artifact_command_scope_invalid");
+      const completed = await client.query<{ id: string }>(
+        `
+          update desktop_connector_receipts
+          set state = $2,
+              completed_at = $3::timestamptz,
+              result = $4::jsonb,
+              updated_at = now()
+          where device_command_id = $1
+            and connector_id = $5
+            and sequence = $6
+            and state = 'processing'
+          returning id
+        `,
+        [
+          commandId,
+          completion.state,
+          completion.completedAt,
+          JSON.stringify({
+            status: completion.status,
+            exitCode: completion.exitCode,
+            artifactUri: uri,
+            stdoutBytes: completion.stdoutBytes,
+            stderrBytes: completion.stderrBytes,
+          }),
+          connector.id,
+          completion.sequence,
+        ],
+      );
+      if (!completed.rows[0]) throw new Error("desktop_artifact_receipt_state_invalid");
       await rename(temporaryPath, storagePath);
+      temporaryPath = null;
       await client.query("commit");
       return uri;
     } catch (error) {
       await client.query("rollback").catch(() => undefined);
       await Promise.all([
-        rm(temporaryPath, { force: true }).catch(() => undefined),
-        rm(storagePath, { force: true }).catch(() => undefined),
+        temporaryPath ? rm(temporaryPath, { force: true }).catch(() => undefined) : Promise.resolve(),
+        storagePath ? rm(storagePath, { force: true }).catch(() => undefined) : Promise.resolve(),
       ]);
       throw error;
     } finally {
@@ -1019,24 +1293,65 @@ export class DesktopConnectorHub {
     }
   }
 
+
   private settle(commandId: string, result: DesktopCommandResult): void {
     const pending = this.pending.get(commandId);
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(commandId);
-    this.activeByConnector.delete(pending.connectorId);
+    if (this.activeByConnector.get(pending.connectorId) === commandId) {
+      this.activeByConnector.delete(pending.connectorId);
+    }
     void this.deps.db.pool.query(
-      "update desktop_connectors set status = 'online', updated_at = now() where id = $1 and revoked_at is null",
-      [pending.connectorId],
+      `
+        update desktop_connectors
+        set status = 'online', updated_at = now()
+        where id = $1 and credential_version = $2 and revoked_at is null and status = 'busy'
+      `,
+      [pending.connectorId, pending.credentialVersion],
     );
     pending.resolve(result);
   }
 
+  private async timeoutCommand(commandId: string, timeoutMs: number): Promise<void> {
+    const pending = this.pending.get(commandId);
+    if (!pending || pending.processingResult) return;
+    try {
+      const timedOut = await this.deps.db.pool.query<{ id: string }>(
+        `
+          update desktop_connector_receipts
+          set state = 'unknown', completed_at = now(), updated_at = now()
+          where device_command_id = $1
+            and state in ('dispatched', 'acknowledged')
+          returning id
+        `,
+        [commandId],
+      );
+      if (!timedOut.rows[0] || this.pending.get(commandId) !== pending) return;
+      this.settle(commandId, {
+        status: "unknown",
+        stdout: "",
+        stderr: "Connector command timed out; execution outcome is unknown",
+        exitCode: null,
+        artifactUri: null,
+        startedAt: new Date(Date.now() - timeoutMs).toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+    } catch {
+      this.settleUnknown(commandId, "Connector command timed out; execution outcome is unknown");
+    }
+  }
+
   private settleUnknown(commandId: string, reason: string): void {
     const pending = this.pending.get(commandId);
-    if (!pending) return;
+    if (!pending || pending.processingResult) return;
     void this.deps.db.pool.query(
-      "update desktop_connector_receipts set state = 'unknown', completed_at = now(), result = $2::jsonb, updated_at = now() where device_command_id = $1",
+      `
+        update desktop_connector_receipts
+        set state = 'unknown', completed_at = now(), result = $2::jsonb, updated_at = now()
+        where device_command_id = $1
+          and state in ('dispatched', 'acknowledged', 'processing')
+      `,
       [commandId, JSON.stringify({ reason })],
     );
     this.settle(commandId, {
@@ -1051,10 +1366,13 @@ export class DesktopConnectorHub {
   }
 
   private closeSocket(connectorId: string, code: number, reason: string): void {
-    const socket = this.sockets.get(connectorId);
-    if (!socket) return;
+    const session = this.sockets.get(connectorId);
+    if (!session) return;
     this.sockets.delete(connectorId);
-    socket.close(code, reason);
+    session.active = false;
+    session.socket.close(code, reason);
+    const activeCommand = this.activeByConnector.get(connectorId);
+    if (activeCommand) this.settleUnknown(activeCommand, reason);
   }
 
   private async ownedConnector(connectorId: string, principal: AccountPrincipal): Promise<{ device_id: string } | null> {
@@ -1062,9 +1380,9 @@ export class DesktopConnectorHub {
       `
         select device_id
         from desktop_connectors
-        where id = $1 and account_id = $2 and workspace_id = $3 and revoked_at is null
+        where id = $1 and account_id = $2 and revoked_at is null
       `,
-      [connectorId, principal.accountId, principal.workspaceId],
+      [connectorId, principal.accountId],
     );
     return result.rows[0] || null;
   }

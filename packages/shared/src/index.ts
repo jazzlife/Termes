@@ -319,7 +319,7 @@ export interface PlatformEvent<TPayload extends Record<string, unknown> = Record
 
 export interface DeviceSummary {
   id: string;
-  projectId: string;
+  projectId: string | null;
   key: string;
   name: string;
   platform: DevicePlatform;
@@ -344,8 +344,9 @@ export interface DesktopConnectorPermissionState {
 
 export interface DesktopConnectorSummary {
   id: string;
-  projectId: string;
-  projectName: string;
+  accountId: string;
+  projectId: string | null;
+  projectName: string | null;
   deviceId: string;
   name: string;
   platform: Extract<DevicePlatform, "windows" | "macos">;

@@ -6,7 +6,23 @@ mod storage;
 use connector::ConnectorState;
 use model::{ConnectorSnapshot, PairInput};
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager, Runtime, State, WindowEvent,
+};
+
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_SHOW_ID: &str = "tray-show";
+const TRAY_QUIT_ID: &str = "tray-quit";
+
+fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
 
 #[tauri::command]
 fn get_connector_snapshot(state: State<'_, Arc<ConnectorState>>) -> ConnectorSnapshot {
@@ -93,11 +109,66 @@ fn request_connector_permission(kind: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let state = ConnectorState::new(app.handle().clone())?;
+            state.connect_on_startup();
             app.manage(state);
+
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+
+            let show_item = MenuItem::with_id(
+                app,
+                TRAY_SHOW_ID,
+                "Termes Connector 열기",
+                true,
+                None::<&str>,
+            )?;
+            let quit_item = MenuItem::with_id(app, TRAY_QUIT_ID, "종료", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let mut tray = TrayIconBuilder::with_id("termes-connector")
+                .tooltip("Termes Connector")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .icon_as_template(cfg!(target_os = "macos"))
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    TRAY_SHOW_ID => show_main_window(app),
+                    TRAY_QUIT_ID => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                });
+            #[cfg(target_os = "macos")]
+            {
+                let icon =
+                    tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
+                tray = tray.icon(icon);
+            }
+            #[cfg(not(target_os = "macos"))]
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray = tray.icon(icon);
+            }
+            tray.build(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == MAIN_WINDOW_LABEL {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_connector_snapshot,
@@ -114,6 +185,13 @@ pub fn run() {
             request_connector_permission,
             open_connector_permission_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Termes Connector");
+        .build(tauri::generate_context!())
+        .expect("error while building Termes Connector");
+
+    app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            show_main_window(app);
+        }
+    });
 }

@@ -59,25 +59,24 @@ export function DesktopConnectorSection({ projectId }: DesktopConnectorSectionPr
   const [copied, setCopied] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    if (!projectId) {
-      setConnectors([]);
-      return;
-    }
     setBusy("load");
     try {
-      setConnectors(await fetchDesktopConnectors(projectId));
+      setConnectors(await fetchDesktopConnectors());
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(null);
     }
-  }, [projectId]);
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
 
   React.useEffect(() => {
     setPairing(null);
-    void load();
-  }, [load]);
+  }, [projectId]);
 
   React.useEffect(() => {
     if (!pairing) return;
@@ -86,10 +85,9 @@ export function DesktopConnectorSection({ projectId }: DesktopConnectorSectionPr
   }, [pairing]);
 
   React.useEffect(() => {
-    if (!projectId) return;
     const timer = window.setInterval(() => void load(), 15_000);
     return () => window.clearInterval(timer);
-  }, [load, projectId]);
+  }, [load]);
 
   async function createPairing() {
     if (!projectId) return;
@@ -138,14 +136,14 @@ export function DesktopConnectorSection({ projectId }: DesktopConnectorSectionPr
         <div>
           <span className="sectionLabel">Desktop Connector</span>
           <h3>Windows · macOS 연결</h3>
-          <p>PC 제어, 화면·프로세스 분석과 제한된 디버깅을 위한 outbound-only 연결입니다.</p>
+          <p>계정에 한 번 연결하면 모든 Workspace의 에이전트가 사용할 수 있는 outbound-only 연결입니다.</p>
         </div>
         <div className="desktopConnectorHeaderActions">
           <button
             className="aliasIconButton"
             type="button"
             title="Connector 새로고침"
-            disabled={!projectId || busy === "load"}
+            disabled={busy === "load"}
             onClick={() => void load()}
           >
             <RefreshCw size={14} className={busy === "load" ? "spin" : ""} />
@@ -177,14 +175,13 @@ export function DesktopConnectorSection({ projectId }: DesktopConnectorSectionPr
       ) : null}
 
       {message ? <p className="desktopConnectorMessage">{message}</p> : null}
+      {!projectId ? <p className="desktopConnectorMessage">새 PC를 페어링하려면 프로젝트를 선택하세요.</p> : null}
 
-      {!projectId ? (
-        <div className="desktopConnectorEmpty">먼저 프로젝트를 선택하세요.</div>
-      ) : connectors.length === 0 && busy !== "load" ? (
+      {connectors.length === 0 && busy !== "load" ? (
         <div className="desktopConnectorEmpty">
           <Laptop size={22} />
           <strong>연결된 PC가 없습니다.</strong>
-          <span>코드를 생성하고 Windows 또는 macOS Connector에서 페어링하세요.</span>
+          <span>코드를 생성하고 계정에서 사용할 Windows 또는 macOS PC를 페어링하세요.</span>
         </div>
       ) : (
         <div className="desktopConnectorList">
