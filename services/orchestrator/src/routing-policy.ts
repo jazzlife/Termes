@@ -68,6 +68,7 @@ export type CapabilityKey =
   | "windows-powershell-ops"
   | "android-adb-debug"
   | "tizen-sdb-debug"
+  | "desktop-app-debug"
   | "local-mock-device";
 export type RiskSignal =
   | "destructive-change"
@@ -165,7 +166,7 @@ const RISKS = new Set<RiskSignal>(["destructive-change", "auth-or-secret", "prod
 const TOOLSETS = new Set<SpecialistToolset>(["file", "terminal", "web", "browser"]);
 const CAPABILITIES = new Set<CapabilityKey>([
   "github-project-bootstrap", "runner-worktree-verification", "web-pwa-verification", "linux-ssh-ops",
-  "windows-powershell-ops", "android-adb-debug", "tizen-sdb-debug", "local-mock-device",
+  "windows-powershell-ops", "android-adb-debug", "tizen-sdb-debug", "desktop-app-debug", "local-mock-device",
 ]);
 const FAST_QUESTION_TYPES = new Set<FastQuestionType>([
   "conversation", "general-question", "project-read", "analysis", "design", "coding", "operation",

@@ -3758,6 +3758,7 @@ dependencies = [
  "hex",
  "hostname",
  "keyring",
+ "libc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3771,6 +3772,7 @@ dependencies = [
  "url",
  "uuid",
  "whoami",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -149,9 +149,13 @@ test("실행 capability도 내부 키워드가 아니라 Agent 선택을 그대�
     route: "single-specialist",
     primaryDomain: "product",
     specialists: [specialist("product", "Mobile UI Specialist", "모바일 UI를 구현하고 실제 viewport를 검증한다.", ["file", "browser"])],
-    capabilities: ["runner-worktree-verification", "web-pwa-verification"],
+    capabilities: ["runner-worktree-verification", "web-pwa-verification", "desktop-app-debug"],
   })));
-  assert.deepEqual(decision.selectedCapabilities, ["runner-worktree-verification", "web-pwa-verification"]);
+  assert.deepEqual(decision.selectedCapabilities, [
+    "runner-worktree-verification",
+    "web-pwa-verification",
+    "desktop-app-debug",
+  ]);
   assert.throws(
     () => parseAgentRouteDecision(JSON.stringify(executionDecision({
       route: "single-specialist",

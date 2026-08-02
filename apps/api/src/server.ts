@@ -49,6 +49,7 @@ import type pg from "pg";
 import { z } from "zod";
 import { loadConfig } from "./config";
 import { assertDbReady, createDb, type Db } from "./db";
+import { deviceCommandParamsForLedger } from "./device-command-ledger";
 import { EVENT_CHANNEL, EventOutboxDispatcher, TurnDispatchOutboxDispatcher, appendEvent } from "./events";
 import { registerHermesRealtime } from "./hermes-realtime";
 import { registerOpenAiAuth } from "./openai-auth";
@@ -344,26 +345,6 @@ function blockedDeviceAction(action: string, params: Record<string, unknown>): s
 
 function normalizeJsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-const secretParamKeyPattern =
-  /(password|passwd|passphrase|token|secret|clientsecret|client_secret|api[-_]?key|private[-_]?key|authorization|credential)/i;
-
-function redactSecretParams(value: unknown, key = ""): unknown {
-  if (secretParamKeyPattern.test(key)) {
-    return "[REDACTED]";
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => redactSecretParams(item));
-  }
-  if (value && typeof value === "object") {
-    const redacted: Record<string, unknown> = {};
-    for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
-      redacted[childKey] = redactSecretParams(childValue, childKey);
-    }
-    return redacted;
-  }
-  return value;
 }
 
 function normalizeStringRecord(value: unknown): Record<string, string> {
@@ -2632,7 +2613,7 @@ async function main(): Promise<void> {
     }
 
     const commandParams = input.params || {};
-    const commandParamsForLedger = redactSecretParams(commandParams);
+    const commandParamsForLedger = deviceCommandParamsForLedger(input.action, commandParams);
     const blockedReason = blockedDeviceAction(input.action, commandParams);
     let status: DeviceCommandStatus = "created";
     let approvalId: string | null = null;

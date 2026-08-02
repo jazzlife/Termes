@@ -4,15 +4,44 @@ use crate::model::{
 use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use sysinfo::{Pid, Signal, System};
 use uuid::Uuid;
 
+#[cfg(target_os = "macos")]
+use std::os::unix::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::os::windows::{io::AsRawHandle, process::CommandExt};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::{
+    Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
+    System::{
+        Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+        },
+        JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        },
+        Threading::{OpenThread, ResumeThread, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME},
+    },
+};
+
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_PROCESSES: usize = 500;
+const MAX_DEVELOPMENT_FILES: usize = 20;
+const MAX_DEVELOPMENT_FILE_BYTES: usize = 64 * 1024;
+const MAX_DEVELOPMENT_TOTAL_BYTES: usize = 256 * 1024;
+const DEFAULT_DEVELOPMENT_TIMEOUT_MS: u64 = 15_000;
+const MIN_DEVELOPMENT_TIMEOUT_MS: u64 = 1_000;
+const MAX_DEVELOPMENT_TIMEOUT_MS: u64 = 55_000;
 
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -100,6 +129,567 @@ fn valid_identifier(value: &str) -> bool {
         .all(|character| character.is_ascii_alphanumeric() || ".:_-\\/".contains(character))
 }
 
+fn valid_app_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "._-".contains(character))
+}
+
+fn development_relative_path(value: &str) -> Result<PathBuf, String> {
+    if value.is_empty() || value.len() > 240 || value.contains('\0') {
+        return Err("Development app file must use a bounded relative path".to_owned());
+    }
+    let path = PathBuf::from(value);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("Development app file must use a safe relative path".to_owned());
+    }
+    Ok(path)
+}
+
+fn resolve_node_runtime() -> Result<PathBuf, String> {
+    let executable = if cfg!(target_os = "windows") {
+        "node.exe"
+    } else {
+        "node"
+    };
+    let mut candidates = Vec::new();
+    #[cfg(target_os = "macos")]
+    candidates.extend([
+        PathBuf::from("/opt/homebrew/bin/node"),
+        PathBuf::from("/usr/local/bin/node"),
+        PathBuf::from("/usr/bin/node"),
+    ]);
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|directory| directory.join(executable)));
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| "Node.js runtime was not found on this device".to_owned())
+}
+
+fn development_root() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    let root = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join("Library/Application Support/Termes Connector/development-apps"));
+    #[cfg(target_os = "windows")]
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|local| local.join("Termes Connector/development-apps"));
+    root.ok_or_else(|| "Cannot resolve the Connector development app directory".to_owned())
+}
+
+fn read_bounded_stream(mut stream: impl Read) -> String {
+    let mut bytes = Vec::new();
+    let _ = stream
+        .by_ref()
+        .take((MAX_OUTPUT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes);
+    let truncated = bytes.len() > MAX_OUTPUT_BYTES;
+    bytes.truncate(MAX_OUTPUT_BYTES);
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if truncated {
+        text.push_str("\n[output truncated by Termes Connector]");
+    }
+    text
+}
+
+struct DevelopmentProcessTree {
+    pid: u32,
+    #[cfg(target_os = "windows")]
+    job: HANDLE,
+}
+
+impl DevelopmentProcessTree {
+    fn configure(command: &mut Command) {
+        #[cfg(target_os = "macos")]
+        {
+            command.process_group(0);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            command.creation_flags(CREATE_SUSPENDED);
+        }
+    }
+
+    fn attach(child: &mut std::process::Child) -> Result<Self, String> {
+        #[cfg(target_os = "macos")]
+        {
+            Ok(Self { pid: child.id() })
+        }
+        #[cfg(target_os = "windows")]
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return Err("Cannot create the Windows development process job".to_owned());
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) == 0
+                || AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) == 0
+            {
+                CloseHandle(job);
+                return Err("Cannot isolate the Windows development process tree".to_owned());
+            }
+            Ok(Self {
+                pid: child.id(),
+                job,
+            })
+        }
+    }
+
+    fn terminate(&self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            let _ = libc::kill(-(self.pid as i32), libc::SIGKILL);
+        }
+        #[cfg(target_os = "windows")]
+        unsafe {
+            let _ = TerminateJobObject(self.job, 1);
+        }
+    }
+
+    fn resume(&self) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        unsafe {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            if snapshot == INVALID_HANDLE_VALUE {
+                return Err("Cannot enumerate the suspended Windows development process".to_owned());
+            }
+            let mut entry: THREADENTRY32 = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+            let mut found = Thread32First(snapshot, &mut entry) != 0;
+            while found {
+                if entry.th32OwnerProcessID == self.pid {
+                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    if !thread.is_null() {
+                        let resumed = ResumeThread(thread);
+                        CloseHandle(thread);
+                        CloseHandle(snapshot);
+                        if resumed != u32::MAX {
+                            return Ok(());
+                        }
+                        return Err(
+                            "Cannot resume the isolated Windows development process".to_owned()
+                        );
+                    }
+                }
+                found = Thread32Next(snapshot, &mut entry) != 0;
+            }
+            CloseHandle(snapshot);
+            Err("Cannot find the suspended Windows development process thread".to_owned())
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for DevelopmentProcessTree {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.job);
+        }
+    }
+}
+
+struct TransientDevelopmentDirectory {
+    path: PathBuf,
+}
+
+impl TransientDevelopmentDirectory {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn moved_to(&mut self, path: PathBuf) {
+        self.path = path;
+    }
+
+    fn finish(mut self, mut result: PlatformCommandResult) -> PlatformCommandResult {
+        match remove_transient_development_path(&self.path) {
+            Ok(()) => self.path.clear(),
+            Err(error) => {
+                result.status = "failed".to_owned();
+                result.exit_code = Some(1);
+                if !result.stderr.is_empty() {
+                    result.stderr.push('\n');
+                }
+                result.stderr.push_str(&error);
+            }
+        }
+        result
+    }
+}
+
+impl Drop for TransientDevelopmentDirectory {
+    fn drop(&mut self) {
+        if !self.path.as_os_str().is_empty() {
+            if let Err(error) = remove_transient_development_path(&self.path) {
+                eprintln!("Termes Connector transient source cleanup failed: {error}");
+            }
+        }
+    }
+}
+
+fn remove_transient_development_path(path: &Path) -> Result<(), String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "Cannot inspect transient development source: {error}"
+            ))
+        }
+    };
+    let removal = if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    removal.map_err(|error| format!("Cannot remove transient development app source: {error}"))
+}
+
+fn prepare_development_root(root: &Path) -> Result<(), String> {
+    fs::create_dir_all(root)
+        .map_err(|error| format!("Cannot create Connector development app root: {error}"))?;
+    let metadata = fs::symlink_metadata(root)
+        .map_err(|error| format!("Cannot inspect Connector development app root: {error}"))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("Connector development app root must be a real directory".to_owned());
+    }
+    let entries = fs::read_dir(root)
+        .map_err(|error| format!("Cannot inspect stale development app source: {error}"))?;
+    for entry in entries {
+        let entry = entry
+            .map_err(|error| format!("Cannot inspect stale development app source: {error}"))?;
+        remove_transient_development_path(&entry.path())?;
+    }
+    Ok(())
+}
+
+pub fn cleanup_stale_development_sources() -> Result<(), String> {
+    let root = development_root()?;
+    prepare_development_root(&root)
+}
+
+pub fn development_app_timeout_ms(params: &Value) -> u64 {
+    bounded_u64(
+        params,
+        "timeoutMs",
+        DEFAULT_DEVELOPMENT_TIMEOUT_MS,
+        MIN_DEVELOPMENT_TIMEOUT_MS,
+        MAX_DEVELOPMENT_TIMEOUT_MS,
+    )
+}
+
+#[cfg(test)]
+fn run_development_app_in_root(
+    params: &Value,
+    root: &Path,
+    runtime: &Path,
+) -> PlatformCommandResult {
+    run_development_app_in_root_cancellable(params, root, runtime, &|| false)
+}
+
+fn run_development_app_in_root_cancellable(
+    params: &Value,
+    root: &Path,
+    runtime: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> PlatformCommandResult {
+    let app_id = match required_string(params, "appId", 80) {
+        Ok(value) if valid_app_id(&value) => value,
+        Ok(_) => {
+            return failure(
+                "appId must contain only letters, numbers, dots, underscores, or hyphens",
+            )
+        }
+        Err(error) => return failure(error),
+    };
+    if params.get("runtime").and_then(Value::as_str) != Some("node") {
+        return failure("runtime must be node");
+    }
+    let entrypoint_text = match required_string(params, "entrypoint", 240) {
+        Ok(value) => value,
+        Err(error) => return failure(error),
+    };
+    let entrypoint = match development_relative_path(&entrypoint_text) {
+        Ok(value) => value,
+        Err(error) => return failure(error),
+    };
+    if !matches!(
+        entrypoint
+            .extension()
+            .and_then(|extension| extension.to_str()),
+        Some("js" | "mjs" | "cjs")
+    ) {
+        return failure("Node.js entrypoint must end in .js, .mjs, or .cjs");
+    }
+    let file_values = match params.get("files").and_then(Value::as_array) {
+        Some(files) if !files.is_empty() && files.len() <= MAX_DEVELOPMENT_FILES => files,
+        _ => {
+            return failure(format!(
+                "files must contain 1 to {MAX_DEVELOPMENT_FILES} entries"
+            ))
+        }
+    };
+    let mut files = Vec::with_capacity(file_values.len());
+    let mut seen = BTreeSet::new();
+    let mut total_bytes = 0usize;
+    for file in file_values {
+        let path_text = match file.get("path").and_then(Value::as_str) {
+            Some(value) => value,
+            None => return failure("Each development file requires path and content"),
+        };
+        let path = match development_relative_path(path_text) {
+            Ok(value) => value,
+            Err(error) => return failure(error),
+        };
+        if !seen.insert(path.clone()) {
+            return failure(format!("Duplicate development file path: {path_text}"));
+        }
+        let content = match file.get("content").and_then(Value::as_str) {
+            Some(value) if value.len() <= MAX_DEVELOPMENT_FILE_BYTES => value,
+            Some(_) => {
+                return failure(format!(
+                    "Development file {path_text} exceeds {MAX_DEVELOPMENT_FILE_BYTES} bytes"
+                ))
+            }
+            None => return failure("Each development file requires path and content"),
+        };
+        total_bytes = match total_bytes.checked_add(content.len()) {
+            Some(value) if value <= MAX_DEVELOPMENT_TOTAL_BYTES => value,
+            _ => return failure("Development app source exceeds the total size limit"),
+        };
+        files.push((path, content));
+    }
+    if !seen.contains(&entrypoint) {
+        return failure("entrypoint must be included in files");
+    }
+    let args = match params.get("args") {
+        None => Vec::new(),
+        Some(Value::Array(values)) if values.len() <= 16 => {
+            let mut args = Vec::with_capacity(values.len());
+            for value in values {
+                match value.as_str() {
+                    Some(argument) if argument.len() <= 512 && !argument.contains('\0') => {
+                        args.push(argument.to_owned())
+                    }
+                    _ => return failure("args must contain at most 16 bounded strings"),
+                }
+            }
+            args
+        }
+        _ => return failure("args must contain at most 16 bounded strings"),
+    };
+    let timeout_ms = development_app_timeout_ms(params);
+
+    if let Err(error) = prepare_development_root(root) {
+        return failure(error);
+    }
+    let staging = root.join(format!(".{app_id}-{}", Uuid::new_v4()));
+    let mut transient = TransientDevelopmentDirectory::new(staging.clone());
+    if let Err(error) = fs::create_dir(&staging) {
+        return transient.finish(failure(format!(
+            "Cannot create development app staging directory: {error}"
+        )));
+    }
+    for (path, content) in &files {
+        let destination = staging.join(path);
+        if let Some(parent) = destination.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                return transient.finish(failure(format!(
+                    "Cannot create development app directory: {error}"
+                )));
+            }
+        }
+        if let Err(error) = fs::write(&destination, content.as_bytes()) {
+            return transient.finish(failure(format!(
+                "Cannot write development app file: {error}"
+            )));
+        }
+    }
+    let app_root = root.join(&app_id);
+    if let Ok(metadata) = fs::symlink_metadata(&app_root) {
+        let removal = if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            fs::remove_dir_all(&app_root)
+        } else {
+            fs::remove_file(&app_root)
+        };
+        if let Err(error) = removal {
+            return transient.finish(failure(format!(
+                "Cannot replace the previous development app: {error}"
+            )));
+        }
+    }
+    if let Err(error) = fs::rename(&staging, &app_root) {
+        return transient.finish(failure(format!(
+            "Cannot activate development app files: {error}"
+        )));
+    }
+    transient.moved_to(app_root.clone());
+
+    let mut command = Command::new(runtime);
+    command
+        .current_dir(&app_root)
+        .arg(&entrypoint)
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env_clear()
+        .env("TERMES_APP_ID", &app_id)
+        .env("TERMES_APP_ROOT", &app_root);
+    for name in [
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    DevelopmentProcessTree::configure(&mut command);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            return transient.finish(failure(format!(
+                "Cannot start Node.js development app: {error}"
+            )));
+        }
+    };
+    let process_tree = match DevelopmentProcessTree::attach(&mut child) {
+        Ok(tree) => tree,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return transient.finish(failure(error));
+        }
+    };
+    if let Err(error) = process_tree.resume() {
+        process_tree.terminate();
+        let _ = child.kill();
+        let _ = child.wait();
+        return transient.finish(failure(error));
+    }
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_reader = thread::spawn(move || stdout.map(read_bounded_stream).unwrap_or_default());
+    let stderr_reader = thread::spawn(move || stderr.map(read_bounded_stream).unwrap_or_default());
+    let started = Instant::now();
+    let mut timed_out = false;
+    let mut was_cancelled = false;
+    let exit_status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                process_tree.terminate();
+                break Some(status);
+            }
+            Ok(None) if cancelled() => {
+                was_cancelled = true;
+                process_tree.terminate();
+                let _ = child.kill();
+                break child.wait().ok();
+            }
+            Ok(None) if started.elapsed() < Duration::from_millis(timeout_ms) => {
+                thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) => {
+                timed_out = true;
+                process_tree.terminate();
+                let _ = child.kill();
+                break child.wait().ok();
+            }
+            Err(error) => {
+                process_tree.terminate();
+                let _ = child.kill();
+                let _ = child.wait();
+                let stdout = stdout_reader.join().unwrap_or_default();
+                let stderr = stderr_reader.join().unwrap_or_default();
+                let result = PlatformCommandResult {
+                    status: "failed".to_owned(),
+                    stdout,
+                    stderr: format!("{stderr}\nCannot wait for development app: {error}")
+                        .trim()
+                        .to_owned(),
+                    exit_code: Some(1),
+                    artifact: None,
+                };
+                return transient.finish(result);
+            }
+        }
+    };
+    let stdout = stdout_reader.join().unwrap_or_default();
+    let mut stderr = stderr_reader.join().unwrap_or_default();
+    if timed_out {
+        if !stderr.is_empty() {
+            stderr.push('\n');
+        }
+        stderr.push_str(&format!(
+            "Termes app execution timed out after {timeout_ms} ms"
+        ));
+    }
+    if was_cancelled {
+        if !stderr.is_empty() {
+            stderr.push('\n');
+        }
+        stderr.push_str("Termes app execution was cancelled by the local emergency stop");
+    }
+    let exit_code = if was_cancelled {
+        125
+    } else if timed_out {
+        124
+    } else {
+        exit_status.and_then(|status| status.code()).unwrap_or(1)
+    };
+    let result = PlatformCommandResult {
+        status: if exit_code == 0 {
+            "completed"
+        } else {
+            "failed"
+        }
+        .to_owned(),
+        stdout,
+        stderr,
+        exit_code: Some(exit_code),
+        artifact: None,
+    };
+    transient.finish(result)
+}
+
+fn run_development_app(params: &Value, cancelled: &dyn Fn() -> bool) -> PlatformCommandResult {
+    let root = match development_root() {
+        Ok(value) => value,
+        Err(error) => return failure(error),
+    };
+    let runtime = match resolve_node_runtime() {
+        Ok(value) => value,
+        Err(error) => return failure(error),
+    };
+    run_development_app_in_root_cancellable(params, &root, &runtime, cancelled)
+}
+
 pub fn capabilities() -> Vec<String> {
     let prefix = DesktopPlatform::current().action_prefix();
     [
@@ -113,6 +703,7 @@ pub fn capabilities() -> Vec<String> {
         "app.terminate",
         "logs.query",
         "debug.process",
+        "dev.app.run",
     ]
     .into_iter()
     .map(|action| format!("{prefix}.{action}"))
@@ -752,7 +1343,11 @@ fn debug_process(params: &Value) -> PlatformCommandResult {
     success(serde_json::to_string_pretty(&report).unwrap_or_default())
 }
 
-pub fn execute(action: &str, params: &Value) -> PlatformCommandResult {
+pub fn execute_cancellable(
+    action: &str,
+    params: &Value,
+    cancelled: &dyn Fn() -> bool,
+) -> PlatformCommandResult {
     let prefix = DesktopPlatform::current().action_prefix();
     let expected = format!("{prefix}.");
     if !action.starts_with(&expected)
@@ -771,6 +1366,7 @@ pub fn execute(action: &str, params: &Value) -> PlatformCommandResult {
         "app.terminate" => terminate_app(params),
         "logs.query" => query_logs(params),
         "debug.process" => debug_process(params),
+        "dev.app.run" => run_development_app(params, cancelled),
         _ => failure(format!("Unsupported connector action: {action}")),
     }
 }
@@ -780,6 +1376,9 @@ mod tests {
     use super::*;
     #[cfg(target_os = "macos")]
     use std::cell::RefCell;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use tempfile::tempdir;
 
     #[test]
     fn action_allowlist_contains_only_typed_actions() {
@@ -803,6 +1402,125 @@ mod tests {
         assert!(!is_read_only_action(&format!("{prefix}.debug.process")));
         assert!(!is_read_only_action(&format!("{prefix}.input.type")));
         assert!(!is_read_only_action(&format!("{prefix}.app.terminate")));
+        assert!(!is_read_only_action(&format!("{prefix}.dev.app.run")));
+    }
+
+    #[test]
+    fn development_app_runs_node_and_returns_debug_streams() {
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join("stale-crash-source")).unwrap();
+        fs::write(
+            root.path().join("stale-crash-source/main.js"),
+            "console.log('stale')",
+        )
+        .unwrap();
+        let runtime = resolve_node_runtime().expect("Node.js is required for connector tests");
+        let result = run_development_app_in_root(
+            &json!({
+                "appId": "hello-debug",
+                "runtime": "node",
+                "entrypoint": "src/main.js",
+                "files": [{
+                    "path": "src/main.js",
+                    "content": "console.log('TERMES_REMOTE_DEBUG_OK'); console.error('TERMES_REMOTE_STDERR_OK');"
+                }],
+                "args": [],
+                "timeoutMs": 5_000
+            }),
+            root.path(),
+            &runtime,
+        );
+
+        assert_eq!(result.status, "completed");
+        assert_eq!(result.exit_code, Some(0));
+        assert!(result.stdout.contains("TERMES_REMOTE_DEBUG_OK"));
+        assert!(result.stderr.contains("TERMES_REMOTE_STDERR_OK"));
+        assert!(!root.path().join("hello-debug").exists());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn development_app_rejects_paths_outside_its_sandbox() {
+        let root = tempdir().unwrap();
+        let runtime = resolve_node_runtime().expect("Node.js is required for connector tests");
+        let result = run_development_app_in_root(
+            &json!({
+                "appId": "escape-attempt",
+                "runtime": "node",
+                "entrypoint": "../outside.js",
+                "files": [{ "path": "../outside.js", "content": "console.log('no')" }]
+            }),
+            root.path(),
+            &runtime,
+        );
+
+        assert_eq!(result.status, "failed");
+        assert!(result.stderr.contains("relative path"));
+        assert!(!root.path().parent().unwrap().join("outside.js").exists());
+    }
+
+    #[test]
+    fn development_app_timeout_terminates_the_process_tree_keeps_logs_and_removes_source() {
+        let root = tempdir().unwrap();
+        let runtime = resolve_node_runtime().expect("Node.js is required for connector tests");
+        let started = Instant::now();
+        let result = run_development_app_in_root(
+            &json!({
+                "appId": "timeout-app",
+                "runtime": "node",
+                "entrypoint": "main.js",
+                "files": [{
+                    "path": "main.js",
+                    "content": "const { spawn } = require('node:child_process'); console.log('BEFORE_TIMEOUT'); spawn(process.execPath, ['-e', 'setTimeout(() => {}, 3000)'], { stdio: ['ignore', process.stdout, process.stderr] }); setTimeout(() => {}, 10_000);"
+                }],
+                "timeoutMs": 1_000
+            }),
+            root.path(),
+            &runtime,
+        );
+
+        assert_eq!(result.status, "failed");
+        assert_eq!(result.exit_code, Some(124));
+        assert!(result.stdout.contains("BEFORE_TIMEOUT"));
+        assert!(result.stderr.contains("timed out"));
+        assert!(started.elapsed() < Duration::from_millis(2_500));
+        assert!(!root.path().join("timeout-app").exists());
+    }
+
+    #[test]
+    fn development_app_local_cancellation_terminates_and_removes_source() {
+        let root = tempdir().unwrap();
+        let runtime = resolve_node_runtime().expect("Node.js is required for connector tests");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancellation_signal = Arc::clone(&cancelled);
+        let signaler = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            cancellation_signal.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let result = run_development_app_in_root_cancellable(
+            &json!({
+                "appId": "cancelled-app",
+                "runtime": "node",
+                "entrypoint": "main.js",
+                "files": [{
+                    "path": "main.js",
+                    "content": "console.log('BEFORE_CANCEL'); setTimeout(() => {}, 10_000);"
+                }],
+                "timeoutMs": 10_000
+            }),
+            root.path(),
+            &runtime,
+            &|| cancelled.load(Ordering::SeqCst),
+        );
+        signaler.join().unwrap();
+
+        assert_eq!(result.status, "failed");
+        assert_eq!(result.exit_code, Some(125));
+        assert!(result.stdout.contains("BEFORE_CANCEL"));
+        assert!(result.stderr.contains("local emergency stop"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!root.path().join("cancelled-app").exists());
     }
 
     #[cfg(target_os = "macos")]

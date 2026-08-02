@@ -111,6 +111,7 @@ fn request_connector_permission(kind: String) -> Result<(), String> {
 pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
+            platform::cleanup_stale_development_sources()?;
             let state = ConnectorState::new(app.handle().clone())?;
             state.connect_on_startup();
             app.manage(state);

@@ -484,9 +484,17 @@ impl ConnectorState {
                                     let envelope: CommandEnvelope = serde_json::from_value(value)
                                         .map_err(|error| format!("Termes sent an invalid command envelope: {error}"))?;
                                     let state = Arc::clone(self);
+                                    let execution_generation =
+                                        state.execution_generation.load(Ordering::SeqCst);
                                     let command_sender = outbound.clone();
                                     tauri::async_runtime::spawn(async move {
-                                        state.handle_command(envelope, command_sender).await;
+                                        state
+                                            .handle_command(
+                                                envelope,
+                                                command_sender,
+                                                execution_generation,
+                                            )
+                                            .await;
                                     });
                                 }
                                 _ => return Err(format!("Termes sent unsupported connector message: {message_type}")),
@@ -523,8 +531,8 @@ impl ConnectorState {
         self: Arc<Self>,
         envelope: CommandEnvelope,
         outbound: mpsc::UnboundedSender<Value>,
+        execution_generation: u64,
     ) {
-        let execution_generation = self.execution_generation.load(Ordering::SeqCst);
         let now = Utc::now();
         let deadline = DateTime::parse_from_rfc3339(&envelope.deadline)
             .map(|value| value.with_timezone(&Utc))
@@ -550,6 +558,15 @@ impl ConnectorState {
                 "Command rejected",
                 format!("{}: {reason}", envelope.action),
                 Some(false),
+            );
+            return;
+        }
+        if self.execution_generation.load(Ordering::SeqCst) != execution_generation {
+            send_ack(
+                &outbound,
+                &envelope,
+                false,
+                Some("Cancelled by the local emergency stop before execution"),
             );
             return;
         }
@@ -583,6 +600,7 @@ impl ConnectorState {
             let wait = (deadline - Utc::now())
                 .to_std()
                 .unwrap_or_default()
+                .saturating_sub(command_execution_budget(&envelope))
                 .min(Duration::from_secs(300));
             tokio::time::timeout(wait, receiver)
                 .await
@@ -618,14 +636,33 @@ impl ConnectorState {
             );
             return;
         }
+        if (deadline - Utc::now()).to_std().unwrap_or_default()
+            < command_execution_budget(&envelope)
+        {
+            send_ack(
+                &outbound,
+                &envelope,
+                false,
+                Some("Command deadline no longer leaves enough time for bounded execution"),
+            );
+            return;
+        }
 
         send_ack(&outbound, &envelope, true, None);
         self.set_phase(ConnectionPhase::Busy, None);
         let started_at = Utc::now();
         let action = envelope.action.clone();
         let params = envelope.params.clone();
-        let result =
-            tauri::async_runtime::spawn_blocking(move || platform::execute(&action, &params)).await;
+        let cancellation_state = Arc::clone(&self);
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            platform::execute_cancellable(&action, &params, &|| {
+                cancellation_state
+                    .execution_generation
+                    .load(Ordering::SeqCst)
+                    != execution_generation
+            })
+        })
+        .await;
         let completed_at = Utc::now();
         if self.execution_generation.load(Ordering::SeqCst) != execution_generation {
             self.add_activity(
@@ -751,7 +788,47 @@ fn redact_params(action: &str, params: &Value) -> Value {
             "characterCount": params.get("text").and_then(Value::as_str).map(|value| value.chars().count()).unwrap_or(0),
         });
     }
+    if action.ends_with(".dev.app.run") {
+        let files = params
+            .get("files")
+            .and_then(Value::as_array)
+            .map(|files| {
+                files
+                    .iter()
+                    .map(|file| {
+                        let content = file
+                            .get("content")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        json!({
+                            "path": file.get("path").and_then(Value::as_str).unwrap_or_default(),
+                            "bytes": content.len(),
+                            "sha256": hex::encode(Sha256::digest(content.as_bytes())),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        return json!({
+            "appId": params.get("appId"),
+            "runtime": params.get("runtime"),
+            "entrypoint": params.get("entrypoint"),
+            "argumentCount": params.get("args").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+            "timeoutMs": params.get("timeoutMs"),
+            "files": files,
+        });
+    }
     params.clone()
+}
+
+fn command_execution_budget(envelope: &CommandEnvelope) -> Duration {
+    const RESULT_TRANSPORT_BUDGET_MS: u64 = 5_000;
+    if envelope.action.ends_with(".dev.app.run") {
+        let execution_ms = platform::development_app_timeout_ms(&envelope.params);
+        Duration::from_millis(execution_ms + RESULT_TRANSPORT_BUDGET_MS)
+    } else {
+        Duration::from_millis(RESULT_TRANSPORT_BUDGET_MS)
+    }
 }
 
 fn command_request_hash(envelope: &CommandEnvelope) -> String {
@@ -768,6 +845,34 @@ fn command_request_hash(envelope: &CommandEnvelope) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::DesktopPlatform;
+
+    #[test]
+    fn development_app_execution_budget_preserves_server_command_fence() {
+        let envelope = CommandEnvelope {
+            protocol_version: PROTOCOL_VERSION,
+            command_id: "command-1".to_owned(),
+            sequence: 1,
+            action: format!("{}.dev.app.run", DesktopPlatform::current().action_prefix()),
+            params: json!({ "timeoutMs": 8_000 }),
+            deadline: Utc::now().to_rfc3339(),
+            request_hash: String::new(),
+        };
+
+        assert_eq!(command_execution_budget(&envelope), Duration::from_secs(13));
+
+        let minimum = CommandEnvelope {
+            params: json!({ "timeoutMs": 1 }),
+            ..envelope.clone()
+        };
+        assert_eq!(command_execution_budget(&minimum), Duration::from_secs(6));
+
+        let maximum = CommandEnvelope {
+            params: json!({ "timeoutMs": 100_000 }),
+            ..envelope
+        };
+        assert_eq!(command_execution_budget(&maximum), Duration::from_secs(60));
+    }
 
     #[test]
     fn remote_api_requires_tls() {
@@ -793,6 +898,35 @@ mod tests {
             value.get("characterCount").and_then(Value::as_u64),
             Some(10)
         );
+    }
+
+    #[test]
+    fn development_source_is_summarized_for_local_approval() {
+        let value = redact_params(
+            "macos.dev.app.run",
+            &json!({
+                "appId": "hello-debug",
+                "runtime": "node",
+                "entrypoint": "main.js",
+                "files": [{ "path": "main.js", "content": "console.log('private source')" }],
+                "args": ["demo"],
+                "timeoutMs": 5_000
+            }),
+        );
+
+        assert_eq!(
+            value.get("appId").and_then(Value::as_str),
+            Some("hello-debug")
+        );
+        let file = value
+            .get("files")
+            .and_then(Value::as_array)
+            .and_then(|files| files.first())
+            .unwrap();
+        assert_eq!(file.get("path").and_then(Value::as_str), Some("main.js"));
+        assert_eq!(file.get("bytes").and_then(Value::as_u64), Some(29));
+        assert!(file.get("sha256").and_then(Value::as_str).is_some());
+        assert!(file.get("content").is_none());
     }
 
     #[test]

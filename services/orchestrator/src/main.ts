@@ -24,6 +24,12 @@ import {
   type RoutingSystemContext,
 } from "./routing-policy";
 import { executeHermesJsonRpcRun } from "./hermes-json-rpc-runner";
+import {
+  formatDesktopAppDebugReport,
+  loadDesktopAppCommand,
+  type DesktopAppExecution,
+  type DesktopConnectorPlatform,
+} from "./desktop-app-command";
 import { jsonForPostgres } from "./postgres-json";
 import { HermesRoutingSpecialist } from "./routing-specialist";
 import { dashboardWorkspacePath } from "./workspace-path";
@@ -151,6 +157,7 @@ function buildTaskPlanSteps(selectedCapabilities: string[]): PlanStep[] {
     "windows-powershell-ops",
     "android-adb-debug",
     "tizen-sdb-debug",
+    "desktop-app-debug",
     "local-mock-device",
   ]);
   const steps: PlanStep[] = [
@@ -272,7 +279,14 @@ async function updateTaskPlan(
   });
 }
 
-function devicePlanContract(capabilityKey: string | null): { platform: string; action: string; params: Record<string, unknown> } | null {
+type DevicePlanContract = {
+  platform: string;
+  action: string;
+  params: Record<string, unknown>;
+  timeoutMs?: number;
+};
+
+function devicePlanContract(capabilityKey: string | null): DevicePlanContract | null {
   if (capabilityKey === "local-mock-device") {
     return {
       platform: "local_mock",
@@ -295,11 +309,16 @@ function devicePlanContract(capabilityKey: string | null): { platform: string; a
   return null;
 }
 
-async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task: ClaimedTask): Promise<void> {
+async function executeDevicePlanSteps(
+  client: pg.PoolClient,
+  redis: Redis,
+  task: ClaimedTask,
+): Promise<DesktopAppExecution[]> {
   const planResult = await client.query<{ steps: unknown }>("select steps from task_plans where task_id = $1", [task.id]);
   let steps = Array.isArray(planResult.rows[0]?.steps) ? (planResult.rows[0]?.steps as PlanStep[]) : [];
+  const desktopAppExecutions: DesktopAppExecution[] = [];
   if (!steps.some((step) => step.type === "device.command")) {
-    return;
+    return desktopAppExecutions;
   }
 
   for (const step of steps.filter((entry) => entry.type === "device.command")) {
@@ -307,7 +326,42 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
       continue;
     }
 
-    const contract = devicePlanContract(step.capabilityKey);
+    const isDesktopApp = step.capabilityKey === "desktop-app-debug";
+    let contract = devicePlanContract(step.capabilityKey);
+    let deviceRow: { id: string; name: string; platform: string } | undefined;
+    if (isDesktopApp) {
+      const deviceResult = await client.query<{ id: string; name: string; platform: DesktopConnectorPlatform }>(
+        `
+          select d.id, d.name, d.platform
+          from devices d
+          join desktop_connectors connector
+            on connector.device_id = d.id
+           and connector.account_id = d.account_id
+           and connector.revoked_at is null
+          where d.account_id = $1
+            and d.transport = 'connector'
+            and d.platform in ('macos', 'windows')
+            and d.status in ('online', 'busy')
+            and connector.status in ('online', 'busy')
+            and connector.capabilities ? (d.platform || '.dev.app.run')
+          order by case d.status when 'online' then 0 else 1 end, connector.last_heartbeat_at desc nulls last
+          limit 1
+        `,
+        [task.accountId],
+      );
+      deviceRow = deviceResult.rows[0];
+      if (deviceRow) {
+        const appCommand = await loadDesktopAppCommand(task.workspacePath, deviceRow.platform as DesktopConnectorPlatform);
+        contract = {
+          platform: deviceRow.platform,
+          action: appCommand.action,
+          params: appCommand.params,
+          timeoutMs: appCommand.timeoutMs,
+        };
+      } else {
+        contract = { platform: "desktop", action: "desktop.dev.app.run", params: {} };
+      }
+    }
     if (!contract) {
       steps = steps.map((entry) => (entry.id === step.id ? { ...entry, status: "blocked" } : entry));
       await client.query("update task_plans set steps = $2::jsonb, status = 'blocked', updated_at = now() where task_id = $1", [
@@ -323,27 +377,30 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
       continue;
     }
 
-    const deviceResult = await client.query<{ id: string }>(
-      `
-        select d.id
-        from devices d
-        left join desktop_connectors connector
-          on connector.device_id = d.id
-         and connector.account_id = d.account_id
-         and connector.revoked_at is null
-        where d.account_id = $1
-          and d.platform = $2
-          and (
-            (d.transport = 'connector' and connector.id is not null)
-            or
-            (d.transport <> 'connector' and d.project_id = $3)
-          )
-        order by case d.status when 'online' then 0 when 'busy' then 1 when 'unknown' then 2 else 3 end, d.updated_at desc
-        limit 1
-      `,
-      [task.accountId, contract.platform, task.projectId],
-    );
-    const deviceId = deviceResult.rows[0]?.id;
+    if (!deviceRow) {
+      const deviceResult = await client.query<{ id: string; name: string; platform: string }>(
+        `
+          select d.id, d.name, d.platform
+          from devices d
+          left join desktop_connectors connector
+            on connector.device_id = d.id
+           and connector.account_id = d.account_id
+           and connector.revoked_at is null
+          where d.account_id = $1
+            and d.platform = $2
+            and (
+              (d.transport = 'connector' and connector.id is not null)
+              or
+              (d.transport <> 'connector' and d.project_id = $3)
+            )
+          order by case d.status when 'online' then 0 when 'busy' then 1 when 'unknown' then 2 else 3 end, d.updated_at desc
+          limit 1
+        `,
+        [task.accountId, contract.platform, task.projectId],
+      );
+      deviceRow = deviceResult.rows[0];
+    }
+    const deviceId = deviceRow?.id;
     if (!deviceId) {
       const verificationResult = await client.query<{ id: string }>(
         `
@@ -354,8 +411,14 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
         [
           task.projectId,
           task.id,
-          `${step.capabilityKey || "device"} device is not registered.`,
-          JSON.stringify({ stepId: step.id, capabilityKey: step.capabilityKey, platform: contract.platform }),
+          isDesktopApp
+            ? "An online Desktop Connector with app debugging support is not available."
+            : `${step.capabilityKey || "device"} device is not registered.`,
+          JSON.stringify({
+            stepId: step.id,
+            capabilityKey: step.capabilityKey,
+            platform: isDesktopApp ? "desktop" : contract.platform,
+          }),
         ],
       );
       const verificationResultId = verificationResult.rows[0]?.id || null;
@@ -376,7 +439,11 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
         projectId: task.projectId,
         taskId: task.id,
         type: "task.plan.step.failed",
-        payload: { stepId: step.id, capabilityKey: step.capabilityKey, reason: "Device is not registered" },
+        payload: {
+          stepId: step.id,
+          capabilityKey: step.capabilityKey,
+          reason: isDesktopApp ? "Compatible Desktop Connector is not online" : "Device is not registered",
+        },
       });
       continue;
     }
@@ -406,10 +473,18 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
         taskId: task.id,
         action: contract.action,
         params: contract.params,
+        ...(contract.timeoutMs ? { timeoutMs: contract.timeoutMs } : {}),
       }),
     });
     const body = (await response.json().catch(() => null)) as {
-      command?: { id?: string; status?: string };
+      command?: {
+        id?: string;
+        status?: string;
+        action?: string;
+        stdout?: string | null;
+        stderr?: string | null;
+        exitCode?: number | null;
+      };
       verificationResult?: { id?: string };
       error?: string;
     } | null;
@@ -444,7 +519,19 @@ async function executeDevicePlanSteps(client: pg.PoolClient, redis: Redis, task:
         error: body?.error || null,
       },
     });
+    if (isDesktopApp && body?.command?.id && deviceRow) {
+      desktopAppExecutions.push({
+        commandId: body.command.id,
+        deviceName: deviceRow.name,
+        action: body.command.action || contract.action,
+        status: commandStatus,
+        exitCode: body.command.exitCode ?? null,
+        stdout: body.command.stdout || "",
+        stderr: body.command.stderr || body.error || "",
+      });
+    }
   }
+  return desktopAppExecutions;
 }
 
 async function previewTask(pool: pg.Pool, runtimeCellId: string): Promise<{
@@ -1663,7 +1750,18 @@ async function completeTask(
     );
     const verificationResultId = verificationResult.rows[0]?.id || null;
 
-    await executeDevicePlanSteps(client, redis, task);
+    const desktopAppExecutions = await executeDevicePlanSteps(client, redis, task);
+    if (desktopAppExecutions.length > 0) {
+      const debugReports = desktopAppExecutions.map(formatDesktopAppDebugReport);
+      await client.query(
+        `
+          update chat_messages
+          set content = $4
+          where id = $1 and project_id = $2 and task_id = $3 and role = 'assistant'
+        `,
+        [assistantMessageId, task.projectId, task.id, [output, ...debugReports].join("\n\n")],
+      );
+    }
 
     const devicePlanResult = await client.query<{ steps: unknown }>("select steps from task_plans where task_id = $1", [task.id]);
     const devicePlanSteps = Array.isArray(devicePlanResult.rows[0]?.steps)
@@ -1995,6 +2093,12 @@ async function runOneCycle(
         `Work only inside ${task.workspacePath}. Treat every path outside it as denied.`,
         ...(task.routeDecision.reasonCodes.includes("completion-required") ? [
           "Completion contract: inspect current code, implement the requested product outcome, run relevant tests, run typecheck or production build, verify the actual runtime or UI flow, and report the concrete evidence. Do not finish before every step succeeds.",
+        ] : []),
+        ...(task.routeDecision.selectedCapabilities.includes("desktop-app-debug") ? [
+          "Termes remote app contract: implement and test a small dependency-free Node.js app inside the selected project, then keep a .termes/device-app.json manifest for the Orchestrator handoff.",
+          "The manifest must be JSON with version=1, appId using only letters/numbers/dot/underscore/hyphen, runtime=\"node\", a .js/.mjs/.cjs entrypoint, an explicit files array of project-relative POSIX paths including the entrypoint, optional string args, and timeoutMs between 1000 and 55000.",
+          "Do not put source content, credentials, environment values, absolute paths, shell commands, or device/account/workspace/project IDs in the manifest. Termes resolves the listed files from this project and preserves the authenticated Task provenance when dispatching them.",
+          "The Desktop Connector runs this command only after local approval. Its stdout, stderr, exit code, device name, and command ID will be appended to the assistant response by Termes; do not claim remote execution from a local test.",
         ] : []),
         `Task title: ${task.title}`,
         `Target project workspace: ${task.workspacePath}`,

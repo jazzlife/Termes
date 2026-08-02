@@ -219,7 +219,7 @@ test("desktop connector pairing is single-use and revocation preserves its row",
       machineFingerprint: `test-machine-${marker}-1234567890`,
       publicKey: null,
       appVersion: "0.1.0-test",
-      capabilities: ["macos.system.info", "macos.screen.capture"],
+      capabilities: ["macos.system.info", "macos.screen.capture", "macos.dev.app.run"],
       permissions: {
         accessibility: "granted",
         screenCapture: "granted",
@@ -376,6 +376,71 @@ test("desktop connector pairing is single-use and revocation preserves its row",
       );
       return status.rows[0]?.status === "online";
     });
+    const appCommandId = randomUUID();
+    await pool.query(
+      `insert into device_commands (
+         id, account_id, workspace_id, project_id, device_id, action, params, status
+       ) values ($1, $2, $3, $4, $5, 'macos.dev.app.run', $6::jsonb, 'created')`,
+      [
+        appCommandId,
+        accountId,
+        secondWorkspaceId,
+        secondProjectId,
+        paired.deviceId,
+        JSON.stringify({ appId: "hello-debug", runtime: "node", entrypoint: "main.js" }),
+      ],
+    );
+    const sentBeforeApp = socket.sent.length;
+    const appParams = {
+      appId: "hello-debug",
+      runtime: "node",
+      entrypoint: "main.js",
+      files: [{ path: "main.js", content: "console.log('TERMES_REMOTE_APP_OK')" }],
+      args: [],
+      timeoutMs: 5_000,
+    };
+    const appExecution = hub.executeCommand({
+      commandId: appCommandId,
+      deviceId: paired.deviceId,
+      action: "macos.dev.app.run",
+      params: appParams,
+      timeoutMs: 5_000,
+    });
+    await waitFor(() => socket.sent.length > sentBeforeApp);
+    const appEnvelope = socket.sent.find(
+      (message, index) => index >= sentBeforeApp && message.type === "command",
+    );
+    assert.ok(appEnvelope);
+    assert.equal(appEnvelope.action, "macos.dev.app.run");
+    assert.deepEqual(appEnvelope.params, appParams);
+    socket.emitMessage({
+      type: "command.ack",
+      commandId: appCommandId,
+      sequence: appEnvelope.sequence,
+      accepted: true,
+      acknowledgedAt: new Date().toISOString(),
+    });
+    socket.emitMessage({
+      type: "command.result",
+      commandId: appCommandId,
+      sequence: appEnvelope.sequence,
+      status: "completed",
+      stdout: "TERMES_REMOTE_APP_OK\n",
+      stderr: "TERMES_REMOTE_APP_TRACE\n",
+      exitCode: 0,
+      completedAt: new Date().toISOString(),
+    });
+    const appResult = await appExecution;
+    assert.equal(appResult.status, "completed");
+    assert.equal(appResult.stdout, "TERMES_REMOTE_APP_OK\n");
+    assert.equal(appResult.stderr, "TERMES_REMOTE_APP_TRACE\n");
+    assert.equal(appResult.exitCode, 0);
+    const appReceipt = await pool.query<{ state: string }>(
+      "select state from desktop_connector_receipts where device_command_id = $1",
+      [appCommandId],
+    );
+    assert.equal(appReceipt.rows[0]?.state, "completed");
+
     const duplicateResultCommandId = randomUUID();
     await pool.query(
       `insert into device_commands (
@@ -571,6 +636,10 @@ test("desktop connector pairing is single-use and revocation preserves its row",
        from desktop_connector_receipts
        where connector_id = $2`,
       [interruptedCommandId, paired.connectorId],
+    );
+    await pool.query(
+      "update desktop_connector_receipts set state = 'processing' where device_command_id = $1",
+      [interruptedCommandId],
     );
     await pool.query("update desktop_connectors set status = 'online' where id = $1", [paired.connectorId]);
     await pool.query("update devices set status = 'online' where id = $1", [paired.deviceId]);

@@ -301,7 +301,7 @@ export class DesktopConnectorHub {
           set state = 'unknown', completed_at = coalesce(completed_at, now()),
               result = jsonb_build_object('reason', 'Termes API restarted before the connector result was finalized'),
               updated_at = now()
-          where state in ('dispatched', 'acknowledged')
+          where state in ('dispatched', 'acknowledged', 'processing')
           returning device_command_id
         `,
       );
@@ -1130,6 +1130,7 @@ export class DesktopConnectorHub {
           ],
         );
         if (!persisted.rows[0]) {
+          pending.processingResult = false;
           this.settleUnknown(message.commandId, "Connector credentials changed while processing the result");
           return;
         }
@@ -1144,6 +1145,7 @@ export class DesktopConnectorHub {
         completedAt: message.completedAt,
       });
     } catch (error) {
+      pending.processingResult = false;
       this.settleUnknown(message.commandId, "Connector result processing failed");
       throw error;
     }
