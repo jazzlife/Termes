@@ -1493,8 +1493,13 @@ mod tests {
         let runtime = resolve_node_runtime().expect("Node.js is required for connector tests");
         let cancelled = Arc::new(AtomicBool::new(false));
         let cancellation_signal = Arc::clone(&cancelled);
+        let child_started = root.path().join("cancelled-app/started");
         let signaler = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(150));
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !child_started.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(20));
+            }
+            thread::sleep(Duration::from_millis(50));
             cancellation_signal.store(true, Ordering::SeqCst);
         });
         let started = Instant::now();
@@ -1505,7 +1510,7 @@ mod tests {
                 "entrypoint": "main.js",
                 "files": [{
                     "path": "main.js",
-                    "content": "console.log('BEFORE_CANCEL'); setTimeout(() => {}, 10_000);"
+                    "content": "require('node:fs').writeFileSync('started', 'ready'); console.log('BEFORE_CANCEL'); setTimeout(() => {}, 10_000);"
                 }],
                 "timeoutMs": 10_000
             }),
@@ -1519,7 +1524,7 @@ mod tests {
         assert_eq!(result.exit_code, Some(125));
         assert!(result.stdout.contains("BEFORE_CANCEL"));
         assert!(result.stderr.contains("local emergency stop"));
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(7));
         assert!(!root.path().join("cancelled-app").exists());
     }
 
