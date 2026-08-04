@@ -110,6 +110,8 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 .policy-toggle span { display: flex; flex-direction: column; gap: 4px; }
 .policy-toggle strong { color: #b9c3cc; font-size: 11px; }
 .policy-toggle small { color: #65727e; line-height: 1.45; font-size: 10px; }
+.control-policy strong { color: #ff9b83; }
+.control-policy small { color: #9a746d; }
 
 .permission-list { display: grid; margin-top: 14px; border-top: 1px solid #20272e; }
 .permission-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 58px; border-bottom: 1px solid #20272e; }
@@ -130,12 +132,18 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 .approvals-panel { margin-top: 24px; padding-top: 22px; border-top: 1px solid rgba(238, 128, 61, 0.28); }
 .approval-list { margin-top: 17px; display: grid; gap: 10px; }
 .approval-card { display: flex; justify-content: space-between; gap: 22px; align-items: center; padding: 15px; border: 1px solid #29313a; border-radius: 11px; background: #0e1216; }
+.approval-card > div:first-child { min-width: 0; }
 .approval-kind { display: inline-block; margin-bottom: 6px; color: #91dcb6; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .approval-kind.control { color: #ff9f69; }
 .approval-card h3 { margin: 0 0 6px; font-size: 14px; }
 .approval-card small { color: #65727d; font-size: 9px; }
-.approval-params { max-width: 650px; overflow: hidden; text-overflow: ellipsis; color: #7d8995; white-space: nowrap; font-size: 9px; }
+.approval-params { max-width: 650px; max-height: 150px; overflow: auto; overflow-wrap: anywhere; color: #7d8995; white-space: pre-wrap; font-size: 9px; line-height: 1.55; }
 .approval-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+@media (max-width: 760px) {
+  .approval-card { align-items: stretch; flex-direction: column; }
+  .approval-actions { justify-content: flex-end; }
+}
 
 .activity-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(5, 6, 8, 0.82); animation: fade-in 120ms ease-out; }
 .activity-dialog { width: min(680px, 100%); max-height: min(510px, calc(100vh - 48px)); display: flex; flex-direction: column; min-height: 0; padding: 24px 26px; border: 1px solid #28313a; border-radius: 14px; background: #11151a; box-shadow: 0 22px 70px rgba(0, 0, 0, 0.46); animation: dialog-in 140ms ease-out; }

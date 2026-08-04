@@ -20,6 +20,8 @@ use tokio_tungstenite::tungstenite::Message;
 use url::Url;
 use uuid::Uuid;
 
+const AUTO_APPROVAL_POLICY_VERSION: u8 = 1;
+
 #[derive(Clone)]
 struct InnerState {
     phase: ConnectionPhase,
@@ -39,9 +41,37 @@ pub struct ConnectorState {
     execution_generation: AtomicU64,
 }
 
+fn should_auto_approve(read_only: bool, auto_observe: bool, auto_control: bool) -> bool {
+    (read_only && auto_observe) || (!read_only && auto_control)
+}
+
+fn apply_auto_approval_defaults(
+    auto_observe: &mut bool,
+    auto_control: &mut bool,
+    policy_version: &mut u8,
+) -> bool {
+    if *policy_version >= AUTO_APPROVAL_POLICY_VERSION {
+        return false;
+    }
+    *auto_observe = true;
+    *auto_control = true;
+    *policy_version = AUTO_APPROVAL_POLICY_VERSION;
+    true
+}
+
 impl ConnectorState {
     pub fn new(app: AppHandle) -> Result<Arc<Self>, String> {
-        let settings = storage::load_settings(&app)?;
+        let mut settings = storage::load_settings(&app)?;
+        if let Some(settings) = settings.as_mut() {
+            let migrated = apply_auto_approval_defaults(
+                &mut settings.auto_observe,
+                &mut settings.auto_control,
+                &mut settings.auto_approval_policy_version,
+            );
+            if migrated {
+                storage::save_settings(&app, settings)?;
+            }
+        }
         let phase = if settings.is_some() {
             ConnectionPhase::Offline
         } else {
@@ -187,7 +217,9 @@ impl ConnectorState {
             project_name: paired.project_name,
             device_name: device_name.to_owned(),
             platform: crate::model::DesktopPlatform::current(),
-            auto_observe: false,
+            auto_observe: true,
+            auto_control: true,
+            auto_approval_policy_version: AUTO_APPROVAL_POLICY_VERSION,
         };
         if let Err(error) = storage::save_settings(&self.app, &settings) {
             let _ = storage::delete_device_token(&paired.connector_id);
@@ -303,16 +335,59 @@ impl ConnectorState {
     }
 
     pub async fn set_auto_observe(&self, enabled: bool) -> Result<ConnectorSnapshot, String> {
-        let settings = {
+        let pending_ids = {
             let mut inner = self.inner.write().expect("connector state poisoned");
-            let settings = inner
+            let mut settings = inner
                 .settings
-                .as_mut()
+                .clone()
                 .ok_or_else(|| "Pair this computer before changing connector policy".to_owned())?;
             settings.auto_observe = enabled;
-            settings.clone()
+            settings.auto_approval_policy_version = AUTO_APPROVAL_POLICY_VERSION;
+            storage::save_settings(&self.app, &settings)?;
+            inner.settings = Some(settings);
+            if enabled {
+                inner
+                    .pending_approvals
+                    .iter()
+                    .filter(|approval| approval.read_only)
+                    .map(|approval| approval.command_id.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
         };
-        storage::save_settings(&self.app, &settings)?;
+        for command_id in pending_ids {
+            self.resolve_approval(&command_id, true).await?;
+        }
+        self.emit_snapshot();
+        Ok(self.snapshot())
+    }
+
+    pub async fn set_auto_control(&self, enabled: bool) -> Result<ConnectorSnapshot, String> {
+        let pending_ids = {
+            let mut inner = self.inner.write().expect("connector state poisoned");
+            let mut settings = inner
+                .settings
+                .clone()
+                .ok_or_else(|| "Pair this computer before changing connector policy".to_owned())?;
+            settings.auto_control = enabled;
+            settings.auto_approval_policy_version = AUTO_APPROVAL_POLICY_VERSION;
+            storage::save_settings(&self.app, &settings)?;
+            inner.settings = Some(settings);
+            if enabled {
+                inner
+                    .pending_approvals
+                    .iter()
+                    .filter(|approval| !approval.read_only)
+                    .map(|approval| approval.command_id.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        };
+        for command_id in pending_ids {
+            self.resolve_approval(&command_id, true).await?;
+        }
         self.emit_snapshot();
         Ok(self.snapshot())
     }
@@ -572,14 +647,15 @@ impl ConnectorState {
         }
 
         let read_only = platform::is_read_only_action(&envelope.action);
-        let auto_observe = self
+        let (auto_observe, auto_control) = self
             .inner
             .read()
             .expect("connector state poisoned")
             .settings
             .as_ref()
-            .is_some_and(|settings| settings.auto_observe);
-        let approved = if read_only && auto_observe {
+            .map(|settings| (settings.auto_observe, settings.auto_control))
+            .unwrap_or_default();
+        let approved = if should_auto_approve(read_only, auto_observe, auto_control) {
             true
         } else {
             let pending = PendingApproval {
@@ -826,6 +902,8 @@ fn command_execution_budget(envelope: &CommandEnvelope) -> Duration {
     if envelope.action.ends_with(".dev.app.run") {
         let execution_ms = platform::development_app_timeout_ms(&envelope.params);
         Duration::from_millis(execution_ms + RESULT_TRANSPORT_BUDGET_MS)
+    } else if envelope.action.contains(".debug.") {
+        Duration::from_secs(20) + Duration::from_millis(RESULT_TRANSPORT_BUDGET_MS)
     } else {
         Duration::from_millis(RESULT_TRANSPORT_BUDGET_MS)
     }
@@ -846,6 +924,42 @@ fn command_request_hash(envelope: &CommandEnvelope) -> String {
 mod tests {
     use super::*;
     use crate::model::DesktopPlatform;
+
+    #[test]
+    fn automatic_approval_policy_separates_analysis_and_control() {
+        assert!(!should_auto_approve(true, false, false));
+        assert!(!should_auto_approve(false, false, false));
+        assert!(should_auto_approve(true, true, false));
+        assert!(!should_auto_approve(false, true, false));
+        assert!(!should_auto_approve(true, false, true));
+        assert!(should_auto_approve(false, false, true));
+        assert!(should_auto_approve(true, true, true));
+        assert!(should_auto_approve(false, true, true));
+    }
+
+    #[test]
+    fn automatic_approval_defaults_migrate_once_and_preserve_later_opt_out() {
+        let mut auto_observe = false;
+        let mut auto_control = false;
+        let mut policy_version = 0;
+
+        assert!(apply_auto_approval_defaults(
+            &mut auto_observe,
+            &mut auto_control,
+            &mut policy_version,
+        ));
+        assert!(auto_observe);
+        assert!(auto_control);
+        assert_eq!(policy_version, AUTO_APPROVAL_POLICY_VERSION);
+
+        auto_control = false;
+        assert!(!apply_auto_approval_defaults(
+            &mut auto_observe,
+            &mut auto_control,
+            &mut policy_version,
+        ));
+        assert!(!auto_control);
+    }
 
     #[test]
     fn development_app_execution_budget_preserves_server_command_fence() {
@@ -927,6 +1041,49 @@ mod tests {
         assert_eq!(file.get("bytes").and_then(Value::as_u64), Some(29));
         assert!(file.get("sha256").and_then(Value::as_str).is_some());
         assert!(file.get("content").is_none());
+    }
+
+    #[test]
+    fn browser_debug_expression_is_visible_for_informed_local_approval() {
+        let value = redact_params(
+            "macos.debug.browser",
+            &json!({
+                "port": 9222,
+                "targetId": "page-1",
+                "expectedUrl": "https://example.test/",
+                "expression": "document.cookie",
+                "collectMs": 750
+            }),
+        );
+
+        assert_eq!(value.get("port").and_then(Value::as_u64), Some(9222));
+        assert_eq!(
+            value.get("targetId").and_then(Value::as_str),
+            Some("page-1")
+        );
+        assert_eq!(
+            value.get("expression").and_then(Value::as_str),
+            Some("document.cookie")
+        );
+        assert_eq!(
+            value.get("expectedUrl").and_then(Value::as_str),
+            Some("https://example.test/")
+        );
+    }
+
+    #[test]
+    fn debugger_actions_reserve_their_bounded_execution_time() {
+        let envelope = CommandEnvelope {
+            protocol_version: PROTOCOL_VERSION,
+            command_id: "command-debug".to_owned(),
+            sequence: 1,
+            action: "macos.debug.browser".to_owned(),
+            params: json!({ "port": 9222 }),
+            deadline: Utc::now().to_rfc3339(),
+            request_hash: String::new(),
+        };
+
+        assert_eq!(command_execution_budget(&envelope), Duration::from_secs(25));
     }
 
     #[test]

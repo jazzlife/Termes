@@ -63,6 +63,10 @@ pub struct ConnectorSettings {
     pub platform: DesktopPlatform,
     #[serde(default)]
     pub auto_observe: bool,
+    #[serde(default)]
+    pub auto_control: bool,
+    #[serde(default)]
+    pub auto_approval_policy_version: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

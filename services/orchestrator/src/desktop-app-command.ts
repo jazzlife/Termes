@@ -3,6 +3,7 @@ import { open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 const MANIFEST_PATH = ".termes/device-app.json";
+const DEBUG_MANIFEST_PATH = ".termes/device-debug.json";
 const MAX_MANIFEST_BYTES = 16 * 1024;
 const MAX_FILES = 20;
 const MAX_FILE_BYTES = 64 * 1024;
@@ -13,15 +14,8 @@ const APPROVAL_AND_TRANSPORT_BUDGET_MS = 65_000;
 export type DesktopConnectorPlatform = "macos" | "windows";
 
 export type DesktopAppCommand = {
-  action: `${DesktopConnectorPlatform}.dev.app.run`;
-  params: {
-    appId: string;
-    runtime: "node";
-    entrypoint: string;
-    files: Array<{ path: string; content: string }>;
-    args: string[];
-    timeoutMs: number;
-  };
+  action: `${DesktopConnectorPlatform}.${"dev.app.run" | "debug.console" | "debug.browser.targets" | "debug.browser" | "debug.visual-studio"}`;
+  params: Record<string, unknown>;
   timeoutMs: number;
 };
 
@@ -43,6 +37,22 @@ type DesktopAppManifest = {
   files: string[];
   args?: string[];
   timeoutMs?: number;
+};
+
+type DesktopDebugManifest = {
+  version: 1;
+  kind: "console" | "browser-targets" | "browser" | "visual-studio";
+  pid?: number;
+  expectedExecutable?: string;
+  expectedStartTimeUnixSeconds?: number;
+  expectedUserId?: string;
+  host?: "127.0.0.1" | "::1";
+  port?: number;
+  targetId?: string;
+  expectedUrl?: string;
+  expression?: string;
+  awaitPromise?: boolean;
+  collectMs?: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,6 +100,69 @@ function parseManifest(value: unknown): DesktopAppManifest {
     args: args as string[],
     timeoutMs: timeoutMs as number,
   };
+}
+
+function parseDebugManifest(value: unknown): DesktopDebugManifest {
+  if (!isRecord(value) || value.version !== 1) throw new Error("Termes device debug manifest version must be 1");
+  if (!["console", "browser-targets", "browser", "visual-studio"].includes(String(value.kind))) {
+    throw new Error("Termes device debug kind is invalid");
+  }
+  const kind = value.kind as DesktopDebugManifest["kind"];
+  const allowedKeys = new Set({
+    console: ["version", "kind", "pid", "expectedExecutable", "expectedStartTimeUnixSeconds", "expectedUserId"],
+    "visual-studio": ["version", "kind", "pid", "expectedExecutable", "expectedStartTimeUnixSeconds", "expectedUserId"],
+    "browser-targets": ["version", "kind", "host", "port"],
+    browser: ["version", "kind", "host", "port", "targetId", "expectedUrl", "expression", "awaitPromise", "collectMs"],
+  }[kind]);
+  const unknownKey = Object.keys(value).find((key) => !allowedKeys.has(key));
+  if (unknownKey) throw new Error(`Termes device debug manifest contains unsupported field: ${unknownKey}`);
+  if ((kind === "console" || kind === "visual-studio")
+    && (!Number.isInteger(value.pid) || (value.pid as number) < 1 || (value.pid as number) > 0xffff_ffff)) {
+    throw new Error("Termes device debug pid must be a positive 32-bit integer");
+  }
+  if (kind === "console" || kind === "visual-studio") {
+    if (typeof value.expectedExecutable !== "string" || value.expectedExecutable.length < 1
+      || value.expectedExecutable.length > 4_096 || value.expectedExecutable.includes("\0")) {
+      throw new Error("Termes device debug expectedExecutable is invalid");
+    }
+    if (!Number.isInteger(value.expectedStartTimeUnixSeconds)
+      || (value.expectedStartTimeUnixSeconds as number) < 1
+      || (value.expectedStartTimeUnixSeconds as number) > Number.MAX_SAFE_INTEGER) {
+      throw new Error("Termes device debug expectedStartTimeUnixSeconds is invalid");
+    }
+    if (typeof value.expectedUserId !== "string" || value.expectedUserId.length < 1
+      || value.expectedUserId.length > 256 || value.expectedUserId.includes("\0")) {
+      throw new Error("Termes device debug expectedUserId is invalid");
+    }
+  }
+  if (kind.startsWith("browser")) {
+    if (value.host !== undefined && !["127.0.0.1", "::1"].includes(String(value.host))) {
+      throw new Error("Termes browser debugger host must be loopback");
+    }
+    if (!Number.isInteger(value.port) || (value.port as number) < 1024 || (value.port as number) > 65535) {
+      throw new Error("Termes browser debugger port must be between 1024 and 65535");
+    }
+  }
+  if (kind === "browser") {
+    if (typeof value.targetId !== "string" || value.targetId.length < 1 || value.targetId.length > 256) {
+      throw new Error("Termes browser debugger targetId is invalid");
+    }
+    if (typeof value.expectedUrl !== "string" || value.expectedUrl.length < 1 || value.expectedUrl.length > 4_096) {
+      throw new Error("Termes browser debugger expectedUrl is invalid");
+    }
+    if (value.expression !== undefined
+      && (typeof value.expression !== "string" || value.expression.length > 8_192 || value.expression.includes("\0"))) {
+      throw new Error("Termes browser debugger expression is invalid");
+    }
+    if (value.awaitPromise !== undefined && typeof value.awaitPromise !== "boolean") {
+      throw new Error("Termes browser debugger awaitPromise must be boolean");
+    }
+    if (value.collectMs !== undefined
+      && (!Number.isInteger(value.collectMs) || (value.collectMs as number) < 0 || (value.collectMs as number) > 2_000)) {
+      throw new Error("Termes browser debugger collectMs must be between 0 and 2000");
+    }
+  }
+  return value as DesktopDebugManifest;
 }
 
 function isInsideRoot(root: string, candidate: string): boolean {
@@ -163,6 +236,42 @@ export async function loadDesktopAppCommand(
   platform: DesktopConnectorPlatform,
 ): Promise<DesktopAppCommand> {
   const workspaceRoot = await realpath(workspacePath);
+  const debugManifestCandidate = path.join(workspaceRoot, DEBUG_MANIFEST_PATH);
+  const hasDebugManifest = await stat(debugManifestCandidate)
+    .then((value) => value.isFile())
+    .catch(() => false);
+  if (hasDebugManifest) {
+    const manifestSource = await readBoundedWorkspaceFile(
+      workspaceRoot,
+      debugManifestCandidate,
+      MAX_MANIFEST_BYTES,
+      `Termes remote debug command requires ${DEBUG_MANIFEST_PATH}`,
+      "Termes device debug manifest resolves outside the selected project workspace",
+      "Termes device debug manifest is not a stable bounded regular file",
+    );
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(manifestSource.content);
+    } catch (error) {
+      throw new Error(`Cannot parse ${DEBUG_MANIFEST_PATH}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const manifest = parseDebugManifest(parsed);
+    if (manifest.kind === "visual-studio" && platform !== "windows") {
+      throw new Error("Visual Studio debugger handoff requires a Windows Desktop Connector");
+    }
+    const actionSuffix = {
+      console: "debug.console",
+      "browser-targets": "debug.browser.targets",
+      browser: "debug.browser",
+      "visual-studio": "debug.visual-studio",
+    }[manifest.kind] as "debug.console" | "debug.browser.targets" | "debug.browser" | "debug.visual-studio";
+    const { version: _version, kind: _kind, ...params } = manifest;
+    return {
+      action: `${platform}.${actionSuffix}`,
+      params,
+      timeoutMs: 85_000,
+    };
+  }
   const manifestCandidate = path.join(workspaceRoot, MANIFEST_PATH);
   const manifestSource = await readBoundedWorkspaceFile(
     workspaceRoot,

@@ -20,6 +20,19 @@ export function deviceCommandParamsForLedger(
   action: string,
   params: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (action.endsWith(".debug.browser")) {
+    const expression = typeof params.expression === "string" ? params.expression : "";
+    const expectedUrl = typeof params.expectedUrl === "string" ? params.expectedUrl : "";
+    return {
+      port: params.port,
+      targetId: params.targetId,
+      collectMs: params.collectMs,
+      expectedUrlBytes: Buffer.byteLength(expectedUrl),
+      expectedUrlSha256: createHash("sha256").update(expectedUrl).digest("hex"),
+      expressionBytes: Buffer.byteLength(expression),
+      expressionSha256: createHash("sha256").update(expression).digest("hex"),
+    };
+  }
   if (!action.endsWith(".dev.app.run")) {
     return redactSecretParams(params) as Record<string, unknown>;
   }

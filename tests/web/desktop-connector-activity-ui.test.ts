@@ -28,6 +28,11 @@ test("desktop connector separates activity monitoring from the compact connected
   assert.match(main, /className=\{`activity-status \$\{tone\}`\}/);
   assert.match(main, /activityTriggerRef\.current\?\.focus\(\)/);
   assert.match(main, /className="connected-layout"/);
+  assert.match(main, /checked=\{snapshot\.settings\?\.autoObserve \?\? true\}/);
+  assert.match(main, /checked=\{snapshot\.settings\?\.autoControl \?\? true\}/);
+  assert.match(main, /invokeSnapshot\("set_auto_control", \{ enabled \}\)/);
+  assert.match(main, /제어 작업 자동 허용/);
+  assert.match(main, /신뢰하는 PC에서만 켜세요/);
   assert.match(main, /className="destructive-link"/);
   assert.ok(main.indexOf("className=\"destructive-link\"") < main.indexOf("className=\"permissions-section\""));
   assert.ok(main.indexOf("className=\"activity-trigger\"") < main.indexOf("className={`connection-pill phase-${snapshot.phase}`}"));
@@ -45,6 +50,7 @@ test("desktop connector separates activity monitoring from the compact connected
   assert.match(styles, /\.activity-overlay/);
   assert.match(styles, /\.activity-dialog/);
   assert.match(styles, /\.identity-grid \.connector-id/);
+  assert.match(styles, /\.approval-params \{[^}]*overflow-wrap: anywhere;[^}]*white-space: pre-wrap;/);
   assert.doesNotMatch(styles, /\.platform-badge/);
   assert.doesNotMatch(styles, /\.permission-copy span/);
   assert.doesNotMatch(styles, /\.capability-chips|\.boundary-note/);

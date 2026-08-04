@@ -1,3 +1,4 @@
+use crate::debug;
 use crate::model::{
     ConnectorArtifact, DesktopPlatform, PermissionState, PermissionValue, PlatformCommandResult,
 };
@@ -692,7 +693,7 @@ fn run_development_app(params: &Value, cancelled: &dyn Fn() -> bool) -> Platform
 
 pub fn capabilities() -> Vec<String> {
     let prefix = DesktopPlatform::current().action_prefix();
-    [
+    let mut actions = [
         "system.info",
         "process.list",
         "screen.capture",
@@ -703,15 +704,24 @@ pub fn capabilities() -> Vec<String> {
         "app.terminate",
         "logs.query",
         "debug.process",
+        "debug.browser.targets",
+        "debug.browser",
         "dev.app.run",
     ]
     .into_iter()
     .map(|action| format!("{prefix}.{action}"))
-    .collect()
+    .collect::<Vec<_>>();
+    if debug::console_available() {
+        actions.push(format!("{prefix}.debug.console"));
+    }
+    if debug::visual_studio_available() {
+        actions.push(format!("{prefix}.debug.visual-studio"));
+    }
+    actions
 }
 
 pub fn is_read_only_action(action: &str) -> bool {
-    [".system.info", ".process.list"]
+    [".system.info", ".process.list", ".debug.browser.targets"]
         .iter()
         .any(|suffix| action.ends_with(suffix))
 }
@@ -894,6 +904,8 @@ fn process_list() -> PlatformCommandResult {
                 "parentPid": process.parent().map(|value| value.as_u32()),
                 "name": process.name().to_string_lossy(),
                 "executable": process.exe().map(|value| value.to_string_lossy()),
+                "startTimeUnixSeconds": process.start_time(),
+                "userId": process.user_id().map(|value| format!("{value:?}")),
                 "status": format!("{:?}", process.status()).to_lowercase(),
                 "memoryBytes": process.memory(),
                 "cpuPercent": process.cpu_usage(),
@@ -1295,6 +1307,11 @@ fn debug_process(params: &Value) -> PlatformCommandResult {
         "executable",
         json!(process.exe().map(|path| path.to_string_lossy())),
     );
+    report.insert("startTimeUnixSeconds", json!(process.start_time()));
+    report.insert(
+        "userId",
+        json!(process.user_id().map(|value| format!("{value:?}"))),
+    );
 
     report.insert(
         "status",
@@ -1366,6 +1383,10 @@ pub fn execute_cancellable(
         "app.terminate" => terminate_app(params),
         "logs.query" => query_logs(params),
         "debug.process" => debug_process(params),
+        "debug.browser.targets" => debug::browser_targets(params),
+        "debug.console" => debug::console(params, cancelled),
+        "debug.browser" => debug::browser(params, cancelled),
+        "debug.visual-studio" => debug::visual_studio(params, cancelled),
         "dev.app.run" => run_development_app(params, cancelled),
         _ => failure(format!("Unsupported connector action: {action}")),
     }
@@ -1387,6 +1408,16 @@ mod tests {
         assert!(actions.iter().all(|action| action.starts_with(prefix)));
         assert!(!actions.iter().any(|action| action.contains("shell")));
         assert!(!actions.iter().any(|action| action.contains("powershell")));
+        assert_eq!(
+            actions.contains(&format!("{prefix}.debug.console")),
+            debug::console_available()
+        );
+        assert!(actions.contains(&format!("{prefix}.debug.browser.targets")));
+        assert!(actions.contains(&format!("{prefix}.debug.browser")));
+        assert_eq!(
+            actions.contains(&format!("{prefix}.debug.visual-studio")),
+            debug::visual_studio_available()
+        );
     }
 
     #[test]
@@ -1400,6 +1431,14 @@ mod tests {
         )));
         assert!(!is_read_only_action(&format!("{prefix}.logs.query")));
         assert!(!is_read_only_action(&format!("{prefix}.debug.process")));
+        assert!(is_read_only_action(&format!(
+            "{prefix}.debug.browser.targets"
+        )));
+        assert!(!is_read_only_action(&format!("{prefix}.debug.console")));
+        assert!(!is_read_only_action(&format!("{prefix}.debug.browser")));
+        assert!(!is_read_only_action(&format!(
+            "{prefix}.debug.visual-studio"
+        )));
         assert!(!is_read_only_action(&format!("{prefix}.input.type")));
         assert!(!is_read_only_action(&format!("{prefix}.app.terminate")));
         assert!(!is_read_only_action(&format!("{prefix}.dev.app.run")));

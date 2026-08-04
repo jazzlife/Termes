@@ -1,4 +1,5 @@
 mod connector;
+mod debug;
 mod model;
 mod platform;
 mod storage;
@@ -67,6 +68,14 @@ async fn set_auto_observe(
     enabled: bool,
 ) -> Result<ConnectorSnapshot, String> {
     state.inner().set_auto_observe(enabled).await
+}
+
+#[tauri::command]
+async fn set_auto_control(
+    state: State<'_, Arc<ConnectorState>>,
+    enabled: bool,
+) -> Result<ConnectorSnapshot, String> {
+    state.inner().set_auto_control(enabled).await
 }
 
 #[tauri::command]
@@ -179,6 +188,7 @@ pub fn run() {
             disconnect_connector,
             forget_connector,
             set_auto_observe,
+            set_auto_control,
             approve_connector_command,
             reject_connector_command,
             emergency_stop_connector,
@@ -194,5 +204,7 @@ pub fn run() {
         if let tauri::RunEvent::Reopen { .. } = event {
             show_main_window(app);
         }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
     });
 }

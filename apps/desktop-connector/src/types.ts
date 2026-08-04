@@ -27,6 +27,8 @@ export interface ConnectorSettings {
   deviceName: string;
   platform: "windows" | "macos";
   autoObserve: boolean;
+  autoControl: boolean;
+  autoApprovalPolicyVersion: number;
 }
 
 export interface PendingApproval {

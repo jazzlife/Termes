@@ -11,6 +11,7 @@ import type {
   PermissionState,
   PermissionValue,
 } from "./types";
+import { revealPendingApproval } from "./approval-visibility";
 import { installPermissionFocusRefresh } from "./permission-refresh";
 import "./styles.css";
 
@@ -88,6 +89,10 @@ function actionLabel(action: string): string {
     "app.terminate": "앱 종료",
     "logs.read": "시스템 로그 확인",
     "debug.process": "프로세스 진단",
+    "debug.console": "콘솔 스택 디버깅",
+    "debug.browser.targets": "웹브라우저 디버그 대상 조회",
+    "debug.browser": "웹브라우저 DevTools 연결",
+    "debug.visual-studio": "Visual Studio 디버거 연결",
   };
   const suffix = action.split(".").slice(1).join(".");
   return labels[suffix] ?? action;
@@ -103,6 +108,7 @@ function App() {
   const [activityOpen, setActivityOpen] = React.useState(false);
   const activityTriggerRef = React.useRef<HTMLButtonElement>(null);
   const backgroundRef = React.useRef<HTMLElement>(null);
+  const approvalPanelRef = React.useRef<HTMLElement>(null);
 
   React.useEffect(() => {
     let stopped = false;
@@ -143,6 +149,11 @@ function App() {
     background.toggleAttribute("inert", activityOpen);
     return () => background.removeAttribute("inert");
   }, [activityOpen]);
+
+  const pendingApprovalCount = snapshot?.pendingApprovals.length ?? 0;
+  React.useEffect(() => {
+    revealPendingApproval(pendingApprovalCount, approvalPanelRef.current);
+  }, [pendingApprovalCount]);
 
   const run = React.useCallback(async <T,>(name: string, task: () => Promise<T>) => {
     setBusyAction(name);
@@ -328,7 +339,7 @@ function App() {
             <label className="policy-toggle">
               <input
                 type="checkbox"
-                checked={snapshot.settings?.autoObserve ?? false}
+                checked={snapshot.settings?.autoObserve ?? true}
                 onChange={(event) => {
                   const enabled = event.target.checked;
                   void run("policy", () => invokeSnapshot("set_auto_observe", { enabled })).catch(() => undefined);
@@ -336,7 +347,21 @@ function App() {
               />
               <span>
                 <strong>읽기 전용 분석 자동 허용</strong>
-                <small>시스템·프로세스·화면 분석만 자동 승인합니다. 제어 작업은 항상 묻습니다.</small>
+                <small>시스템 정보·프로세스 목록·브라우저 디버거 대상 조회를 승인 없이 실행합니다.</small>
+              </span>
+            </label>
+            <label className="policy-toggle control-policy">
+              <input
+                type="checkbox"
+                checked={snapshot.settings?.autoControl ?? true}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  void run("control-policy", () => invokeSnapshot("set_auto_control", { enabled })).catch(() => undefined);
+                }}
+              />
+              <span>
+                <strong>제어 작업 자동 허용</strong>
+                <small>강력한 제어·실행·디버깅 요청도 자동 승인합니다. 신뢰하는 PC에서만 켜세요. 즉시 중단은 계속 사용할 수 있습니다.</small>
               </span>
             </label>
             <button
@@ -404,7 +429,7 @@ function App() {
           </section>
 
           {snapshot.pendingApprovals.length > 0 ? (
-            <section className="approvals-panel full-width">
+            <section ref={approvalPanelRef} className="approvals-panel full-width">
               <div className="section-heading inline">
                 <div>
                   <span className="eyebrow urgent">승인 대기</span>

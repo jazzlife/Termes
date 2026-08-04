@@ -9,7 +9,9 @@
     "build": "vite build",
     "tauri": "tauri",
     "build:native": "tauri build",
-    "build:macos:test": "bash scripts/build-macos-test-bundle.sh"
+    "setup:macos:signing": "bash scripts/setup-macos-local-signing.sh",
+    "build:macos:test": "bash scripts/build-macos-test-bundle.sh",
+    "install:macos:test": "bash scripts/install-macos-test-bundle.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

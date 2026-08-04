@@ -27,6 +27,7 @@ import { executeHermesJsonRpcRun } from "./hermes-json-rpc-runner";
 import {
   formatDesktopAppDebugReport,
   loadDesktopAppCommand,
+  type DesktopAppCommand,
   type DesktopAppExecution,
   type DesktopConnectorPlatform,
 } from "./desktop-app-command";
@@ -330,9 +331,14 @@ async function executeDevicePlanSteps(
     let contract = devicePlanContract(step.capabilityKey);
     let deviceRow: { id: string; name: string; platform: string } | undefined;
     if (isDesktopApp) {
-      const deviceResult = await client.query<{ id: string; name: string; platform: DesktopConnectorPlatform }>(
+      const deviceResult = await client.query<{
+        id: string;
+        name: string;
+        platform: DesktopConnectorPlatform;
+        capabilities: unknown;
+      }>(
         `
-          select d.id, d.name, d.platform
+          select d.id, d.name, d.platform, connector.capabilities
           from devices d
           join desktop_connectors connector
             on connector.device_id = d.id
@@ -343,15 +349,39 @@ async function executeDevicePlanSteps(
             and d.platform in ('macos', 'windows')
             and d.status in ('online', 'busy')
             and connector.status in ('online', 'busy')
-            and connector.capabilities ? (d.platform || '.dev.app.run')
+            and (
+              connector.capabilities ? (d.platform || '.dev.app.run')
+              or connector.capabilities ? (d.platform || '.debug.console')
+              or connector.capabilities ? (d.platform || '.debug.browser.targets')
+              or connector.capabilities ? (d.platform || '.debug.browser')
+              or connector.capabilities ? (d.platform || '.debug.visual-studio')
+            )
           order by case d.status when 'online' then 0 else 1 end, connector.last_heartbeat_at desc nulls last
-          limit 1
         `,
         [task.accountId],
       );
-      deviceRow = deviceResult.rows[0];
-      if (deviceRow) {
-        const appCommand = await loadDesktopAppCommand(task.workspacePath, deviceRow.platform as DesktopConnectorPlatform);
+      let appCommand: DesktopAppCommand | undefined;
+      for (const candidate of deviceResult.rows) {
+        let candidateCommand: DesktopAppCommand;
+        try {
+          candidateCommand = await loadDesktopAppCommand(task.workspacePath, candidate.platform);
+        } catch (error) {
+          if (candidate.platform === "macos"
+            && error instanceof Error
+            && error.message === "Visual Studio debugger handoff requires a Windows Desktop Connector") {
+            continue;
+          }
+          throw error;
+        }
+        const capabilities = Array.isArray(candidate.capabilities)
+          ? candidate.capabilities.filter((value): value is string => typeof value === "string")
+          : [];
+        if (!capabilities.includes(candidateCommand.action)) continue;
+        deviceRow = candidate;
+        appCommand = candidateCommand;
+        break;
+      }
+      if (deviceRow && appCommand) {
         contract = {
           platform: deviceRow.platform,
           action: appCommand.action,
@@ -2095,9 +2125,10 @@ async function runOneCycle(
           "Completion contract: inspect current code, implement the requested product outcome, run relevant tests, run typecheck or production build, verify the actual runtime or UI flow, and report the concrete evidence. Do not finish before every step succeeds.",
         ] : []),
         ...(task.routeDecision.selectedCapabilities.includes("desktop-app-debug") ? [
-          "Termes remote app contract: implement and test a small dependency-free Node.js app inside the selected project, then keep a .termes/device-app.json manifest for the Orchestrator handoff.",
+          "Termes remote desktop contract: use .termes/device-app.json for a transient Node.js app, or .termes/device-debug.json for console, browser DevTools, or Visual Studio debugging. A device-debug manifest takes precedence when both exist; remove stale manifests.",
           "The manifest must be JSON with version=1, appId using only letters/numbers/dot/underscore/hyphen, runtime=\"node\", a .js/.mjs/.cjs entrypoint, an explicit files array of project-relative POSIX paths including the entrypoint, optional string args, and timeoutMs between 1000 and 55000.",
-          "Do not put source content, credentials, environment values, absolute paths, shell commands, or device/account/workspace/project IDs in the manifest. Termes resolves the listed files from this project and preserves the authenticated Task provenance when dispatching them.",
+          "A device-debug manifest uses version=1 and kind=console|browser-targets|browser|visual-studio. console and visual-studio require pid, expectedExecutable, expectedStartTimeUnixSeconds, and expectedUserId copied exactly from a prior platform process.list Connector result; expectedExecutable is the target's absolute executable path. Browser kinds require loopback port; browser additionally requires targetId and expectedUrl from a prior browser-targets result and may include a bounded expression and collectMs. Visual Studio requires Windows.",
+          "Do not put source content, credentials, environment values, shell commands, or device/account/workspace/project IDs in the manifest. Absolute paths are forbidden except for expectedExecutable copied verbatim from trusted Connector process evidence. Termes resolves listed app files from this project and preserves the authenticated Task provenance when dispatching them.",
           "The Desktop Connector runs this command only after local approval. Its stdout, stderr, exit code, device name, and command ID will be appended to the assistant response by Termes; do not claim remote execution from a local test.",
         ] : []),
         `Task title: ${task.title}`,

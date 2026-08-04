@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "appId": "remote-debug-smoke",
+  "runtime": "node",
+  "entrypoint": "remote-debug-smoke.mjs",
+  "files": ["remote-debug-smoke.mjs"],
+  "args": ["9344", "--detached"],
+  "timeoutMs": 55000
+}

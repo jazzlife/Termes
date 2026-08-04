@@ -47,6 +47,68 @@ test("project manifest becomes a bounded platform-specific Connector command", a
   });
 });
 
+test("browser debugger manifest becomes a target-bound Connector command", async () => {
+  const root = await projectFixture();
+  await writeFile(path.join(root, ".termes/device-debug.json"), JSON.stringify({
+    version: 1,
+    kind: "browser",
+    host: "127.0.0.1",
+    port: 9222,
+    targetId: "page-1",
+    expectedUrl: "https://example.test/",
+    expression: "document.title",
+    collectMs: 500,
+  }));
+
+  const command = await loadDesktopAppCommand(root, "macos");
+
+  assert.equal(command.action, "macos.debug.browser");
+  assert.equal(command.timeoutMs, 85_000);
+  assert.deepEqual(command.params, {
+    host: "127.0.0.1",
+    port: 9222,
+    targetId: "page-1",
+    expectedUrl: "https://example.test/",
+    expression: "document.title",
+    collectMs: 500,
+  });
+});
+
+test("Visual Studio debugger manifest requires a Windows Connector", async () => {
+  const root = await projectFixture();
+  await writeFile(path.join(root, ".termes/device-debug.json"), JSON.stringify({
+    version: 1,
+    kind: "visual-studio",
+    pid: 4242,
+    expectedExecutable: "C:\\Windows\\System32\\notepad.exe",
+    expectedStartTimeUnixSeconds: 1_785_000_000,
+    expectedUserId: "S-1-5-21-test",
+  }));
+
+  await assert.rejects(loadDesktopAppCommand(root, "macos"), /requires a Windows Desktop Connector/);
+  const command = await loadDesktopAppCommand(root, "windows");
+  assert.equal(command.action, "windows.debug.visual-studio");
+  assert.deepEqual(command.params, {
+    pid: 4242,
+    expectedExecutable: "C:\\Windows\\System32\\notepad.exe",
+    expectedStartTimeUnixSeconds: 1_785_000_000,
+    expectedUserId: "S-1-5-21-test",
+  });
+});
+
+test("debug manifest rejects unsupported fields instead of forwarding them", async () => {
+  const root = await projectFixture();
+  await writeFile(path.join(root, ".termes/device-debug.json"), JSON.stringify({
+    version: 1,
+    kind: "browser-targets",
+    host: "127.0.0.1",
+    port: 9222,
+    expression: "must not be forwarded",
+  }));
+
+  await assert.rejects(loadDesktopAppCommand(root, "macos"), /unsupported field: expression/);
+});
+
 test("manifest cannot read source through a path that escapes the selected project", async () => {
   const root = await projectFixture();
   const outside = await mkdtemp(path.join(os.tmpdir(), "termes-device-app-outside-"));
