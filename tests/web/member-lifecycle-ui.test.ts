@@ -29,6 +29,10 @@ test("회원 lifecycle UI는 Pencil 화면과 동일한 앱 아이콘 및 API �
   assert.match(main, /setHermesCatalog\(null\)/);
   assert.match(main, /setGithubRepositoryGroups\(\[\]\)/);
   assert.match(main, /accountGeneration !== accountDataGenerationRef\.current/);
+  assert.equal((main.match(/minLength=\{4\}/g) ?? []).length, 4);
+  assert.match(main, /4자 이상이며 현재 비밀번호와 달라야 합니다\./);
+  assert.match(main, /placeholder="4자 이상"/);
+  assert.doesNotMatch(main, /minLength=\{12\}|12자 이상/);
 
   assert.match(mobile, /onChangePassword: \(\) => void/);
   assert.match(mobile, /props\.account\.canApproveMembers/);

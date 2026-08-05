@@ -282,8 +282,8 @@ test("회원가입은 승인 대기로 생성되고 관리자 승인 후 로그�
     oauthAdminAccountId: accountA,
   });
   await auth.registerRoutes(app);
-  const originalPassword = "registered-member-password";
-  const changedPassword = "changed-member-password";
+  const originalPassword = "pass";
+  const changedPassword = "next";
 
   const registered = await app.inject({
     method: "POST",

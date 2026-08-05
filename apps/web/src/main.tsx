@@ -3378,12 +3378,12 @@ function App(): JSX.Element {
               </label>
               <label className="accountAccessField">
                 <span>새 비밀번호</span>
-                <input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={memberActionBusy} required />
-                <small>12자 이상이며 현재 비밀번호와 달라야 합니다.</small>
+                <input type="password" autoComplete="new-password" minLength={4} maxLength={512} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={memberActionBusy} required />
+                <small>4자 이상이며 현재 비밀번호와 달라야 합니다.</small>
               </label>
               <label className="accountAccessField">
                 <span>새 비밀번호 확인</span>
-                <input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={newPasswordConfirm} onChange={(event) => setNewPasswordConfirm(event.target.value)} disabled={memberActionBusy} aria-invalid={Boolean(newPasswordConfirm && newPassword !== newPasswordConfirm)} aria-describedby={memberActionError ? "member-password-error" : undefined} required />
+                <input type="password" autoComplete="new-password" minLength={4} maxLength={512} value={newPasswordConfirm} onChange={(event) => setNewPasswordConfirm(event.target.value)} disabled={memberActionBusy} aria-invalid={Boolean(newPasswordConfirm && newPassword !== newPasswordConfirm)} aria-describedby={memberActionError ? "member-password-error" : undefined} required />
               </label>
               <p className="memberDialogNotice"><ShieldCheck size={19} />현재 세션을 포함한 모든 로그인 세션이 종료됩니다.</p>
               {memberActionError ? <p id="member-password-error" className="accountGateError" role="alert">{memberActionError}</p> : null}
@@ -3489,8 +3489,8 @@ function App(): JSX.Element {
               <label className="accountAccessField"><span>이름</span><input type="text" autoComplete="name" maxLength={80} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="표시할 이름" disabled={accountAuthBusy} autoFocus required /></label>
               <label className="accountAccessField"><span>아이디</span><input type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={32} pattern="[A-Za-z0-9][A-Za-z0-9._-]*" value={registrationLoginId} onChange={(event) => setRegistrationLoginId(event.target.value)} placeholder="영문, 숫자, 점, 밑줄, 하이픈" disabled={accountAuthBusy} required /></label>
               <label className="accountAccessField"><span>이메일</span><input type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} maxLength={254} value={registrationEmail} onChange={(event) => setRegistrationEmail(event.target.value)} placeholder="name@domain.com" disabled={accountAuthBusy} required /></label>
-              <label className="accountAccessField"><span>비밀번호</span><input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={registrationPassword} onChange={(event) => setRegistrationPassword(event.target.value)} placeholder="12자 이상" disabled={accountAuthBusy} required /></label>
-              <label className="accountAccessField"><span>비밀번호 확인</span><input type="password" autoComplete="new-password" minLength={12} maxLength={512} value={registrationPasswordConfirm} onChange={(event) => setRegistrationPasswordConfirm(event.target.value)} placeholder="다시 입력하세요" disabled={accountAuthBusy} aria-invalid={Boolean(registrationPasswordConfirm && registrationPassword !== registrationPasswordConfirm)} aria-describedby={accountAuthError ? "registration-error" : undefined} required /></label>
+              <label className="accountAccessField"><span>비밀번호</span><input type="password" autoComplete="new-password" minLength={4} maxLength={512} value={registrationPassword} onChange={(event) => setRegistrationPassword(event.target.value)} placeholder="4자 이상" disabled={accountAuthBusy} required /></label>
+              <label className="accountAccessField"><span>비밀번호 확인</span><input type="password" autoComplete="new-password" minLength={4} maxLength={512} value={registrationPasswordConfirm} onChange={(event) => setRegistrationPasswordConfirm(event.target.value)} placeholder="다시 입력하세요" disabled={accountAuthBusy} aria-invalid={Boolean(registrationPasswordConfirm && registrationPassword !== registrationPasswordConfirm)} aria-describedby={accountAuthError ? "registration-error" : undefined} required /></label>
               {accountAuthError ? <p id="registration-error" className="accountGateError" role="alert">{accountAuthError}</p> : null}
               <button className="accountGateSubmit" type="submit" disabled={accountAuthBusy}>
                 {accountAuthBusy ? <Loader2 className="spin" size={18} /> : <ShieldCheck size={18} />}

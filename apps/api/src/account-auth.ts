@@ -66,12 +66,12 @@ const registerSchema = z.object({
   displayName: z.string().trim().min(1).max(80),
   loginId: z.string().trim().min(3).max(32).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
   email: z.string().trim().email().max(254),
-  password: z.string().min(12).max(512),
+  password: z.string().min(4).max(512),
 });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(512),
-  newPassword: z.string().min(12).max(512),
+  newPassword: z.string().min(4).max(512),
 }).refine((input) => input.currentPassword !== input.newPassword, {
   message: "새 비밀번호는 현재 비밀번호와 달라야 합니다.",
   path: ["newPassword"],
