@@ -20,6 +20,8 @@ export interface ConnectorSettings {
   connectorId: string;
   deviceId: string;
   accountId: string;
+  accountLoginId: string | null;
+  accountEmail: string | null;
   workspaceId: string;
   workspaceKey: string;
   projectId: string;

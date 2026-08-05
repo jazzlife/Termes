@@ -97,15 +97,13 @@
         "mode": "dark"
       },
       "clip": true,
-      "width": 960,
-      "height": 640,
+      "width": 720,
+      "height": 480,
       "fill": "$surface-app",
       "layout": "vertical",
       "padding": [
         0,
-        32,
-        28,
-        32
+        24
       ],
       "children": [
         {
@@ -126,7 +124,7 @@
               "type": "frame",
               "id": "BFvwD",
               "name": "ConnectorBrand",
-              "gap": 12,
+              "gap": 13,
               "alignItems": "center",
               "children": [
                 {
@@ -139,8 +137,8 @@
                     "url": "../apps/desktop-connector/public/termes-icon.png",
                     "mode": "fit"
                   },
-                  "width": 36,
-                  "height": 36
+                  "width": 40,
+                  "height": 40
                 },
                 {
                   "type": "frame",
@@ -166,9 +164,9 @@
                       "fill": "$text-muted",
                       "content": "WINDOWS · MACOS",
                       "fontFamily": "$font-ui",
-                      "fontSize": 9,
+                      "fontSize": 11,
                       "fontWeight": "650",
-                      "letterSpacing": 1
+                      "letterSpacing": 0.9
                     }
                   ]
                 }
@@ -230,47 +228,6 @@
                       "fontWeight": "700"
                     }
                   ]
-                },
-                {
-                  "type": "frame",
-                  "id": "E5t5AP",
-                  "name": "ConnectionStatus",
-                  "context": "Read-only semantic connection state; color is reinforced by text.",
-                  "metadata": {
-                    "type": "display",
-                    "testId": "connection-status"
-                  },
-                  "height": 36,
-                  "fill": "$accent-soft",
-                  "cornerRadius": 18,
-                  "stroke": "$accent",
-                  "strokeWidth": 1,
-                  "gap": 8,
-                  "padding": [
-                    0,
-                    12
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "ellipse",
-                      "id": "QVi7q",
-                      "name": "OnlineIndicator",
-                      "fill": "$accent",
-                      "width": 7,
-                      "height": 7
-                    },
-                    {
-                      "type": "text",
-                      "id": "ZlKyH",
-                      "name": "OnlineLabel",
-                      "fill": "$accent",
-                      "content": "온라인",
-                      "fontFamily": "$font-ui",
-                      "fontSize": 11,
-                      "fontWeight": "700"
-                    }
-                  ]
                 }
               ]
             }
@@ -295,14 +252,14 @@
               "id": "puZNl",
               "name": "ConnectionPane",
               "context": "Primary connection identity and controls. Destructive credential removal remains scoped to this pane.",
-              "width": 330,
+              "width": 402,
               "height": "fill_container",
               "stroke": "$border-subtle",
               "strokeWidth": {
                 "right": 1
               },
               "layout": "vertical",
-              "gap": 16,
+              "gap": 10,
               "padding": [
                 4,
                 28,
@@ -334,35 +291,49 @@
                       "id": "d2jYRA",
                       "name": "DeviceName",
                       "fill": "$text-primary",
-                      "content": "Jazzlife’s MacBook Pro",
+                      "content": "JazzlifeM4Pro-E2E",
                       "fontFamily": "$font-ui",
-                      "fontSize": 22,
+                      "fontSize": 25,
                       "fontWeight": "700",
-                      "letterSpacing": -0.7
+                      "letterSpacing": -1
                     },
                     {
                       "type": "frame",
-                      "id": "pAjgh",
-                      "name": "PlatformBadge",
-                      "height": 28,
-                      "fill": "$surface-panel",
-                      "cornerRadius": 7,
-                      "stroke": "$border",
+                      "id": "E5t5AP",
+                      "name": "ConnectionStatus",
+                      "context": "Read-only semantic connection state; color is reinforced by text.",
+                      "metadata": {
+                        "type": "display",
+                        "testId": "connection-status"
+                      },
+                      "height": 36,
+                      "fill": "$accent-soft",
+                      "cornerRadius": 18,
+                      "stroke": "$accent",
                       "strokeWidth": 1,
+                      "gap": 8,
                       "padding": [
                         0,
-                        9
+                        12
                       ],
                       "alignItems": "center",
                       "children": [
                         {
+                          "type": "ellipse",
+                          "id": "QVi7q",
+                          "name": "OnlineIndicator",
+                          "fill": "$accent",
+                          "width": 7,
+                          "height": 7
+                        },
+                        {
                           "type": "text",
-                          "id": "BCcEW",
-                          "name": "PlatformLabel",
-                          "fill": "$text-secondary",
-                          "content": "macOS",
+                          "id": "ZlKyH",
+                          "name": "OnlineLabel",
+                          "fill": "$accent",
+                          "content": "온라인",
                           "fontFamily": "$font-ui",
-                          "fontSize": 10,
+                          "fontSize": 11,
                           "fontWeight": "700"
                         }
                       ]
@@ -775,20 +746,10 @@
                       "alignItems": "center",
                       "children": [
                         {
-                          "type": "icon",
-                          "id": "hnwS6",
-                          "name": "RefreshIcon",
-                          "width": 14,
-                          "height": 14,
-                          "icon": "refresh-cw",
-                          "library": "lucide",
-                          "fill": "$text-muted"
-                        },
-                        {
                           "type": "text",
                           "id": "lfJiB",
                           "name": "RefreshLabel",
-                          "fill": "$text-secondary",
+                          "fill": "$accent",
                           "content": "새로고침",
                           "fontFamily": "$font-ui",
                           "fontSize": 10,
@@ -819,7 +780,7 @@
                       "id": "WN0t8",
                       "name": "AccessibilityPermissionRow",
                       "width": "fill_container",
-                      "height": 78,
+                      "height": 58,
                       "stroke": "$border-subtle",
                       "strokeWidth": {
                         "bottom": 1
@@ -831,7 +792,7 @@
                           "type": "ellipse",
                           "id": "dtTG9",
                           "name": "AccessibilityStatusDot",
-                          "fill": "$accent",
+                          "fill": "$danger",
                           "width": 8,
                           "height": 8
                         },
@@ -852,28 +813,75 @@
                               "fontFamily": "$font-ui",
                               "fontSize": 11,
                               "fontWeight": "650"
-                            },
-                            {
-                              "type": "text",
-                              "id": "KBfsR",
-                              "name": "AccessibilityPermissionDescription",
-                              "fill": "$text-muted",
-                              "content": "앱 구조와 손쉬운 사용 트리를 읽습니다.",
-                              "fontFamily": "$font-ui",
-                              "fontSize": 9.5,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
                         {
-                          "type": "text",
-                          "id": "gE2fr",
-                          "name": "AccessibilityPermissionStatus",
-                          "fill": "$accent",
-                          "content": "허용됨",
-                          "fontFamily": "$font-ui",
-                          "fontSize": 9.5,
-                          "fontWeight": "750"
+                          "type": "frame",
+                          "id": "cz7dx",
+                          "name": "AccessibilityPermissionActions",
+                          "layout": "vertical",
+                          "gap": 7,
+                          "alignItems": "end",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "K940I",
+                              "name": "AccessibilityPermissionStatus",
+                              "fill": "$danger",
+                              "content": "허용 필요",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "750"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "VcNdx",
+                              "name": "AccessibilityPermissionButtons",
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "mlXMz",
+                                  "name": "RequestAccessibilityPermissionButton",
+                                  "context": "Requests the local accessibility permission.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "request-accessibility-permission",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "손쉬운 사용 권한 요청"
+                                    }
+                                  },
+                                  "fill": "$accent",
+                                  "content": "권한 요청",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "cbLel",
+                                  "name": "OpenAccessibilitySettingsButton",
+                                  "context": "Opens accessibility permission settings.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "open-accessibility-settings",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "손쉬운 사용 권한 설정 열기"
+                                    }
+                                  },
+                                  "fill": "$text-secondary",
+                                  "content": "설정",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "650"
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
@@ -882,7 +890,7 @@
                       "id": "F82zEg",
                       "name": "ScreenCapturePermissionRow",
                       "width": "fill_container",
-                      "height": 78,
+                      "height": 58,
                       "stroke": "$border-subtle",
                       "strokeWidth": {
                         "bottom": 1
@@ -894,7 +902,7 @@
                           "type": "ellipse",
                           "id": "a1d9Rk",
                           "name": "ScreenCaptureStatusDot",
-                          "fill": "$accent",
+                          "fill": "$danger",
                           "width": 8,
                           "height": 8
                         },
@@ -915,28 +923,75 @@
                               "fontFamily": "$font-ui",
                               "fontSize": 11,
                               "fontWeight": "650"
-                            },
-                            {
-                              "type": "text",
-                              "id": "EF1gE",
-                              "name": "ScreenCapturePermissionDescription",
-                              "fill": "$text-muted",
-                              "content": "작업 전후 화면을 캡처해 결과를 검증합니다.",
-                              "fontFamily": "$font-ui",
-                              "fontSize": 9.5,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
                         {
-                          "type": "text",
-                          "id": "fjJpI",
-                          "name": "ScreenCapturePermissionStatus",
-                          "fill": "$accent",
-                          "content": "허용됨",
-                          "fontFamily": "$font-ui",
-                          "fontSize": 9.5,
-                          "fontWeight": "750"
+                          "type": "frame",
+                          "id": "iTes9",
+                          "name": "ScreenCapturePermissionActions",
+                          "layout": "vertical",
+                          "gap": 7,
+                          "alignItems": "end",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "kw7qW",
+                              "name": "ScreenCapturePermissionStatus",
+                              "fill": "$danger",
+                              "content": "허용 필요",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 9.5,
+                              "fontWeight": "750"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Nj7gE",
+                              "name": "ScreenCapturePermissionButtons",
+                              "gap": 10,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "f4ca6",
+                                  "name": "RequestScreenCapturePermissionButton",
+                                  "context": "Requests the local screen-capture permission.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "request-screen-capture-permission",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "화면 캡처 권한 요청"
+                                    }
+                                  },
+                                  "fill": "$accent",
+                                  "content": "권한 요청",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "xMeB3",
+                                  "name": "OpenScreenCaptureSettingsButton",
+                                  "context": "Opens screen-capture permission settings.",
+                                  "metadata": {
+                                    "type": "interactive",
+                                    "testId": "open-screen-capture-settings",
+                                    "aria": {
+                                      "role": "button",
+                                      "label": "화면 캡처 권한 설정 열기"
+                                    }
+                                  },
+                                  "fill": "$text-secondary",
+                                  "content": "설정",
+                                  "fontFamily": "$font-ui",
+                                  "fontSize": 10,
+                                  "fontWeight": "650"
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
@@ -945,7 +1000,7 @@
                       "id": "fbnr3",
                       "name": "InputControlPermissionRow",
                       "width": "fill_container",
-                      "height": 86,
+                      "height": 58,
                       "stroke": "$border-subtle",
                       "strokeWidth": {
                         "bottom": 1
@@ -978,16 +1033,6 @@
                               "fontFamily": "$font-ui",
                               "fontSize": 11,
                               "fontWeight": "650"
-                            },
-                            {
-                              "type": "text",
-                              "id": "VMVjI",
-                              "name": "InputControlPermissionDescription",
-                              "fill": "$text-muted",
-                              "content": "승인된 클릭과 입력 작업을 수행합니다.",
-                              "fontFamily": "$font-ui",
-                              "fontSize": 9.5,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -1065,7 +1110,7 @@
                       "id": "GuMP0",
                       "name": "ProcessInspectionPermissionRow",
                       "width": "fill_container",
-                      "height": 78,
+                      "height": 58,
                       "stroke": "$border-subtle",
                       "strokeWidth": {
                         "bottom": 1
@@ -1098,16 +1143,6 @@
                               "fontFamily": "$font-ui",
                               "fontSize": 11,
                               "fontWeight": "650"
-                            },
-                            {
-                              "type": "text",
-                              "id": "fFra5",
-                              "name": "ProcessInspectionPermissionDescription",
-                              "fill": "$text-muted",
-                              "content": "실행 앱과 제한된 시스템 로그를 분석합니다.",
-                              "fontFamily": "$font-ui",
-                              "fontSize": 9.5,
-                              "fontWeight": "normal"
                             }
                           ]
                         },

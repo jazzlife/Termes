@@ -211,6 +211,8 @@ impl ConnectorState {
             connector_id: paired.connector_id.clone(),
             device_id: paired.device_id,
             account_id: paired.account_id,
+            account_login_id: paired.account_login_id,
+            account_email: paired.account_email,
             workspace_id: paired.workspace_id,
             workspace_key: paired.workspace_key,
             project_id: paired.project_id,
@@ -234,7 +236,11 @@ impl ConnectorState {
         self.add_activity(
             "pairing",
             "Account connected",
-            settings.account_id.clone(),
+            settings
+                .account_login_id
+                .clone()
+                .or_else(|| settings.account_email.clone())
+                .unwrap_or_else(|| settings.account_id.clone()),
             Some(true),
         );
         self.connect_locked().await?;

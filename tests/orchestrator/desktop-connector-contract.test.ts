@@ -238,11 +238,15 @@ test("desktop connector pairing is single-use and revocation preserves its row",
       connectorId: string;
       deviceId: string;
       deviceToken: string;
+      accountLoginId: string;
+      accountEmail: string;
       workspaceId: string;
       projectId: string;
     };
     assert.equal(paired.workspaceId, workspaceId);
     assert.equal(paired.projectId, projectId);
+    assert.equal(paired.accountLoginId, `connector-${marker}`);
+    assert.equal(paired.accountEmail, principal.email);
     assert.ok(paired.deviceToken.length >= 32);
 
     const stored = await pool.query<{

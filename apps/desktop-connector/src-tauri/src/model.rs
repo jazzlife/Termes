@@ -55,6 +55,10 @@ pub struct ConnectorSettings {
     pub connector_id: String,
     pub device_id: String,
     pub account_id: String,
+    #[serde(default)]
+    pub account_login_id: Option<String>,
+    #[serde(default)]
+    pub account_email: Option<String>,
     pub workspace_id: String,
     pub workspace_key: String,
     pub project_id: String,
@@ -84,6 +88,10 @@ pub struct PairResponse {
     pub device_id: String,
     pub device_token: String,
     pub account_id: String,
+    #[serde(default)]
+    pub account_login_id: Option<String>,
+    #[serde(default)]
+    pub account_email: Option<String>,
     pub workspace_id: String,
     pub workspace_key: String,
     pub project_id: String,

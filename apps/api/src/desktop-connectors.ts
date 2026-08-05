@@ -397,6 +397,8 @@ export class DesktopConnectorHub {
         const pairingResult = await client.query<{
           id: string;
           account_id: string;
+          account_login_id: string;
+          account_email: string;
           workspace_id: string;
           workspace_key: string;
           project_id: string;
@@ -405,9 +407,11 @@ export class DesktopConnectorHub {
           consumed_at: Date | null;
         }>(
           `
-            select pc.id, pc.account_id, pc.workspace_id, aw.key as workspace_key,
+            select pc.id, pc.account_id, u.login_id as account_login_id, u.email as account_email,
+                   pc.workspace_id, aw.key as workspace_key,
                    pc.project_id, p.name as project_name, pc.expires_at, pc.consumed_at
             from desktop_pairing_codes pc
+            join users u on u.id = pc.account_id
             join account_workspaces aw on aw.id = pc.workspace_id and aw.account_id = pc.account_id
             join projects p on p.id = pc.project_id and p.workspace_id = pc.workspace_id
             where pc.code_hash = $1
@@ -552,6 +556,8 @@ export class DesktopConnectorHub {
           deviceId,
           deviceToken,
           accountId: pairing.account_id,
+          accountLoginId: pairing.account_login_id,
+          accountEmail: pairing.account_email,
           workspaceId: pairing.workspace_id,
           workspaceKey: pairing.workspace_key,
           projectId: pairing.project_id,

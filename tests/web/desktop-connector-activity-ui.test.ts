@@ -39,6 +39,9 @@ test("desktop connector separates activity monitoring from the compact connected
   assert.ok(main.indexOf("className={`connection-pill phase-${snapshot.phase}`}") > main.indexOf("className=\"connection-section\""));
   assert.doesNotMatch(main, /platform-badge|\? "macOS" : "Windows"/);
   assert.match(main, /className="mono connector-id">\{snapshot\.settings\?\.connectorId\}/);
+  assert.match(main, /snapshot\.settings\?\.accountLoginId \?\? snapshot\.settings\?\.accountEmail \?\? snapshot\.settings\?\.accountId/);
+  assert.match(main, /snapshot\.settings\?\.accountLoginId && snapshot\.settings\?\.accountEmail && snapshot\.settings\.accountEmail !== snapshot\.settings\.accountLoginId/);
+  assert.doesNotMatch(main, /className="mono connector-id">\{snapshot\.settings\?\.accountId\}/);
   assert.doesNotMatch(main, /connectorId\.slice/);
   assert.doesNotMatch(main, /permission\.description|UI Automation|현재 데스크톱을 캡처|로컬 승인 후 제한된 클릭|제한된 시스템 로그/);
   assert.doesNotMatch(main, /capabilities-panel|capability-chips|이 Connector가 지원하는 작업|안전 경계/);

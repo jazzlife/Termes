@@ -375,6 +375,8 @@ export interface DesktopConnectorPairingResult {
   deviceId: string;
   deviceToken: string;
   accountId: string;
+  accountLoginId: string;
+  accountEmail: string;
   workspaceId: string;
   workspaceKey: string;
   projectId: string;

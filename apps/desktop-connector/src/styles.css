@@ -103,6 +103,9 @@ button:focus-visible { outline: 2px solid #58e2a0; outline-offset: 2px; }
 .identity-grid dt { color: #64717d; font-size: 10px; }
 .identity-grid dd { overflow: hidden; text-overflow: ellipsis; margin: 0; color: #b8c2cc; white-space: nowrap; font-size: 10px; }
 .identity-grid .connector-id { overflow: visible; overflow-wrap: anywhere; text-align: right; text-overflow: clip; white-space: normal; }
+.identity-grid .account-identity { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; overflow: visible; text-align: right; white-space: normal; }
+.account-identity strong, .account-identity span { overflow-wrap: anywhere; }
+.account-identity span { color: #6f7c87; font-size: 9px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .connection-actions { display: flex; gap: 8px; margin: 18px 0 4px; }
 .policy-toggle { display: flex; align-items: flex-start; gap: 11px; padding: 13px 0; }

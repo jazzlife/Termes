@@ -307,7 +307,15 @@ function App() {
               </div>
             </div>
             <dl className="identity-grid">
-              <div><dt>Account</dt><dd className="mono connector-id">{snapshot.settings?.accountId}</dd></div>
+              <div>
+                <dt>Account</dt>
+                <dd className="account-identity">
+                  <strong className="mono">{snapshot.settings?.accountLoginId ?? snapshot.settings?.accountEmail ?? snapshot.settings?.accountId}</strong>
+                  {snapshot.settings?.accountLoginId && snapshot.settings?.accountEmail && snapshot.settings.accountEmail !== snapshot.settings.accountLoginId
+                    ? <span>{snapshot.settings.accountEmail}</span>
+                    : null}
+                </dd>
+              </div>
               <div><dt>사용 범위</dt><dd>모든 Workspace</dd></div>
               <div><dt>Connector ID</dt><dd className="mono connector-id">{snapshot.settings?.connectorId}</dd></div>
             </dl>

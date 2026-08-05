@@ -1,0 +1,4 @@
+/build/
+/.qt/
+.DS_Store
+CMakeUserPresets.json
