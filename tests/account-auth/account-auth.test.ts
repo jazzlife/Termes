@@ -285,6 +285,13 @@ test("회원가입은 승인 대기로 생성되고 관리자 승인 후 로그�
   const originalPassword = "pass";
   const changedPassword = "next";
 
+  const tooShortRegistration = await app.inject({
+    method: "POST",
+    url: "/api/account-auth/register",
+    payload: { displayName: "Short Password", loginId: "short-password", email: "short@example.com", password: "bad" },
+  });
+  assert.equal(tooShortRegistration.statusCode, 400);
+
   const registered = await app.inject({
     method: "POST",
     url: "/api/account-auth/register",
@@ -337,6 +344,14 @@ test("회원가입은 승인 대기로 생성되고 관리자 승인 후 로그�
 
   const forbidden = await app.inject({ method: "GET", url: "/api/account-auth/members/pending", headers: { cookie: memberCookie } });
   assert.equal(forbidden.statusCode, 403);
+
+  const tooShortPasswordChange = await app.inject({
+    method: "PATCH",
+    url: "/api/account-auth/password",
+    headers: { cookie: memberCookie },
+    payload: { currentPassword: originalPassword, newPassword: "bad" },
+  });
+  assert.equal(tooShortPasswordChange.statusCode, 400);
 
   const changed = await app.inject({
     method: "PATCH",
