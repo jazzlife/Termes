@@ -67,18 +67,19 @@ test("critical Hermes runtime methods and interaction events are present", async
 
 test("generated JSON-RPC client remains byte-identical to pinned upstream", async () => {
   const lock = await readJson("hermes-compat-lock.json");
-  const generated = await readFile(
+  const generated = (await readFile(
     new URL("../../packages/hermes-compat/src/upstream/json-rpc-gateway.ts", import.meta.url),
-  );
+    "utf8",
+  )).replaceAll(String.fromCharCode(13), "");
   const digest = createHash("sha256").update(generated).digest("hex");
   assert.equal(digest, lock.files["apps/shared/src/json-rpc-gateway.ts"]);
 });
 
 test("Codex runtime keeps direct Hermes chat separate from Termes specialist delegation", async () => {
-  const patch = await readFile(
+  const patch = (await readFile(
     new URL("../../infra/hermes-agent/patch_codex_runtime.py", import.meta.url),
     "utf8",
-  );
+  )).replaceAll(String.fromCharCode(13), "");
 
   assert.match(patch, /if len\(delegate_lines\) > 1:/);
   assert.match(patch, /if delegate_lines:\n\s+termes_delegate_tasks = json\.loads/);
